@@ -1,0 +1,10 @@
+[package]
+name = "cst"
+version = "0.1.0"
+authors = ["yangdao <458424869@qq.com>"]
+edition = "2018"
+
+[dependencies]
+unicode-general-category = "0.2.0"
+lazy_static = "*"
+hime_redist = "3.5.1"
