@@ -4,7 +4,7 @@ pub mod layout;
 pub mod lex_string;
 pub mod positions;
 pub mod types;
-pub mod hime_lex;
+pub mod hime;
 mod tests;
 #[macro_use]
 extern crate lazy_static;

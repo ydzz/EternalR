@@ -11,9 +11,7 @@ dependencies = [
 
 [[package]]
 name = "hime_redist"
-version = "3.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "987aeb58ef79a2d4fe8b67fac415c2fbce250b8395d2d327af9e1c3acba8d89d"
+version = "3.5.2"
 
 [[package]]
 name = "lazy_static"

@@ -7,4 +7,4 @@ edition = "2018"
 [dependencies]
 unicode-general-category = "0.2.0"
 lazy_static = "*"
-hime_redist = "3.5.1"
+hime_redist = {path = "../hime"}
