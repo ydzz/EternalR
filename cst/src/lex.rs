@@ -602,6 +602,7 @@ impl<'a> Lexer<'a> where {
            (raw,chr)
          },
          Some(chr) => {
+            self.next();
             let mut str = String::default();
             str.push(chr);
             (str,chr)
@@ -621,6 +622,7 @@ impl<'a> Lexer<'a> where {
          Some(chr2) => {
             let mut str = String::default();
             str.push(chr2);
+            println!("{}",chr2);
             return Err(ParserErrorType::ErrLexeme(Some(str),vec![]));
          },
          None => return Err(ParserErrorType::ErrEof)
@@ -995,9 +997,9 @@ pub fn sci_to_f64_(c:f64,e:i32) -> Option<f64> {
        Some( (c * 10f64.powi(e) as f64) as f64)
    }
 }
-
-#[test]
+//#[test]
 fn test_lex() {
+   
    let code_string = std::fs::read_to_string("tests/main.purs").unwrap();
    let mut lex = Lexer::new(code_string.as_str());
    let tokens = lex.lex();

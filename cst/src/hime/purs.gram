@@ -1,0 +1,102 @@
+grammar EternaleR {
+  options
+    {
+        Axiom = "exprAtom";
+    }
+    
+    terminals {
+        LeftParen -> '(';
+        RightParen -> ')';
+        LeftBrace -> '{';
+        RightBrace -> '}';
+        LeftSquare -> '[';
+        RightSquare -> ']';
+        LeftArrow -> '_';
+        RightArrow -> '_';
+        RightFatArrow -> '_';
+        LeftFatArrow -> '_';
+        DoubleColon -> '_';
+        Forall -> '_';
+        Forallu -> '_';
+        Equals -> '_';
+        Pipe -> '_';
+        Tick -> '_';
+        Dot -> '_';
+        Comma -> '_';
+        Underscore -> '_'; 
+        Backslash -> '_'; 
+        QualLowerName -> '_'; 
+        LowerName -> '_'; 
+        SymbolDoubleDot -> '_';
+        Ado -> '_';
+        As -> '_';
+        Case -> '_';
+        Class -> '_';
+        Data -> '_';
+        Derive -> '_';
+        Do -> '_';
+        Else -> '_';
+        False -> '_';
+        Foreign -> '_';
+        Hiding -> '_';
+        Import -> '_';
+        If -> '_';
+        In -> '_';
+        Infix -> '_';
+        Infixl -> '_';
+        Infixr -> '_';
+        Instance -> '_';
+        Kind -> '_';
+        Let -> '_';
+        Module -> '_';
+        Newtype -> '_';
+        Nominal -> '_';
+        Phantom -> '_';
+        Of -> '_';
+        Representational -> '_';
+        Role -> '_';
+        Then -> '_';
+        True -> '_';
+        Type -> '_';
+        Where -> '_';
+        QualUpperName -> '_';
+        UpperName -> '_';
+        QualOperator -> '_';
+        Operator -> '_';
+        Colon -> '_';
+        OperatorSub -> '_';
+        OperatorHash -> '_';
+        OperatorAt -> '_';
+        QualSymbolName -> '_';
+        SymbolName -> '_';
+        SymbolArr -> '_';
+        Hole -> '_';
+        Char -> '_';
+        String -> '_';
+        RawString -> '_';
+        Int -> '_';
+        Number -> '_';
+        LayoutStart -> '_';
+        TokLayoutSep -> '_';
+        TokLayoutEnd -> '_';
+        Eof -> '_';
+    }
+    
+    rules
+    {
+        type -> type1 | type1 DoubleColon type;
+        type1 -> type2;
+        type2 -> Hole;
+        hole -> Hole;
+        exprAtom -> Underscore | hole | qualIdent | 
+                    qualProperName | qualSymbol | boolean |
+                    boolean | char | string | number;
+        qualIdent -> LowerName | QualLowerName | As | Hiding | Kind | Role | Nominal | Representational | Phantom;
+        qualProperName -> UpperName | QualUpperName;
+        qualSymbol -> SymbolName | QualSymbolName | SymbolDoubleDot;
+        boolean -> True | False;
+        char -> Char;
+        string -> String | RawString;
+        number -> Int | Number;
+    }
+}

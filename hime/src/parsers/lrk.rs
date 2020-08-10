@@ -644,6 +644,7 @@ impl<'l, 'a: 'l> LRkParser<'l, 'a> {
 
     /// Builds the unexpected token error
     fn build_error(&self, kernel: TokenKernel) -> ParseErrorUnexpectedToken {
+        dbg!(&kernel.terminal_id,kernel.index);
         let token = self
             .builder
             .lexer
@@ -682,7 +683,9 @@ impl<'l, 'a> Parser for LRkParser<'l, 'a> {
                     return;
                 }
                 Some(kernel) => {
+                   
                     let action = self.data.parse_on_token(kernel, &mut self.builder);
+                    println!("{},{}",kernel.terminal_id,action);
                     match action {
                         LR_ACTION_CODE_ACCEPT => {
                             self.builder.commit_root();
@@ -692,6 +695,7 @@ impl<'l, 'a> Parser for LRkParser<'l, 'a> {
                             kernel_maybe = self.get_next_token();
                         }
                         _ => {
+                            
                             // this is an error
                             let error = self.build_error(kernel);
                             let errors = self.builder.lexer.get_errors();

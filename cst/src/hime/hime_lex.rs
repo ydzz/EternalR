@@ -1,4 +1,6 @@
 use crate::lex::{Lexer};
+use crate::types::{SourceToken};
+use super::TokenToHimeTerminal;
 use hime_redist::lexers::{Lexer as ILexer,TokenKernel,ContextProvider};
 use hime_redist::symbols::{Symbol};
 use hime_redist::text::{Text};
@@ -6,34 +8,18 @@ use hime_redist::tokens::{TokenRepository};
 use hime_redist::errors::ParseErrors;
 
 pub struct HimeLex<'a> {
-   lex: Lexer<'a>,
    index:u32,
-   is_init:bool
+   tokens:&'a Vec<SourceToken>
 }
 
 impl<'a> HimeLex<'a> {
-    pub fn new(source:&'a str) -> HimeLex {
+    pub fn new(tokens:&'a Vec<SourceToken>) -> HimeLex<'a> {
         HimeLex {
-            lex:Lexer::new(source),
             index:0,
-            is_init:false
+            tokens
         }
     }
 
-    fn init_by_tokens(&mut self) {
-        let etokens = self.lex.lex();
-        let mut tokens = vec![];
-        let mut errors  = vec![];
-        for etok in etokens {
-            match etok {
-                Err(err) => errors.push(err),
-                Ok(tok) => tokens.push(tok)
-            } 
-        }
-        dbg!(tokens);
-        dbg!(errors);
-        self.is_init = true;
-    }
 }
 
 impl<'a> ILexer<'a> for HimeLex<'a> {
@@ -68,16 +54,17 @@ impl<'a> ILexer<'a> for HimeLex<'a> {
 
     
     fn get_next_token(&mut self, _contexts: &dyn ContextProvider) -> Option<TokenKernel> {
-        if !self.is_init {
-            self.init_by_tokens();
+        if self.index >= self.tokens.len() as u32 {
+            return None;
         }
+        
+        let cur_token = &self.tokens[self.index as usize];
+        println!("next token: {}",cur_token.value);
+        let tindex = cur_token.value.to_terminals_index();
         self.index += 1;
-        None
+        Some(TokenKernel {
+            terminal_id: tindex as u32,
+            index: self.index - 1
+        })
     }
-}
-
-#[test]
-fn test_tok() {
-    let mut lex = HimeLex::new("a = 123");
-    lex.init_by_tokens();
 }

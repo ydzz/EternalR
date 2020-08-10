@@ -33,7 +33,7 @@ use super::utils::iterable::Iterable;
 use super::utils::EitherMut;
 
 /// Represents a type of symbol table
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq,Debug)]
 pub enum TableType {
     /// Marks as other (used for SPPF nodes)
     None = 0,
@@ -57,7 +57,7 @@ impl From<usize> for TableType {
 }
 
 /// Represents a compact reference to an element in a table
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq,Debug)]
 pub struct TableElemRef {
     /// The backend data
     data: usize
@@ -83,7 +83,7 @@ impl TableElemRef {
 }
 
 /// Represents a cell in an AST inner structure
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone,Debug)]
 pub struct AstCell {
     /// The node's label
     pub label: TableElemRef,
@@ -340,6 +340,10 @@ impl<'a> AstNode<'a> {
             TableType::Token => Some(cell.label.get_index()),
             _ => None
         }
+    }
+
+    pub fn get_ast_cell(&self) -> AstCell {
+        self.tree.data.get().nodes[self.index]
     }
 
     /// Gets the parent of this node, if any
