@@ -59,8 +59,8 @@ impl<'a> ILexer<'a> for HimeLex<'a> {
         }
         
         let cur_token = &self.tokens[self.index as usize];
-        println!("next token: {}",cur_token.value);
         let tindex = cur_token.value.to_terminals_index();
+        println!("next token: {} ,t:{}",cur_token.value,tindex);
         self.index += 1;
         Some(TokenKernel {
             terminal_id: tindex as u32,

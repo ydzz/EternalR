@@ -1,7 +1,8 @@
 grammar EternaleR {
   options
     {
-        Axiom = "exprAtom";
+        Axiom = "expr";
+        ParserType = "RNGLR";
     }
     
     terminals {
@@ -77,20 +78,32 @@ grammar EternaleR {
         Int -> '_';
         Number -> '_';
         LayoutStart -> '_';
-        TokLayoutSep -> '_';
-        TokLayoutEnd -> '_';
+        LayoutSep -> '_';
+        LayoutEnd -> '_';
         Eof -> '_';
     }
     
     rules
     {
-        type -> type1 | type1 DoubleColon type;
-        type1 -> type2;
-        type2 -> Hole;
-        hole -> Hole;
-        exprAtom -> Underscore | hole | qualIdent | 
-                    qualProperName | qualSymbol | boolean |
-                    boolean | char | string | number;
+        type -> type1^ | type1 DoubleColon type;
+        type1 -> type2^ | forall^ (typeVarBinding)+ Dot type1^;
+        type2 -> type3^ | type3^ RightArrow type1^ | type3^ RightFatArrow type1^;
+        type3 -> type4^ | type3^ qualOp type4^;
+        type4 -> type5^ | OperatorHash type4^;
+        type5 -> typeAtom | type5^ typeAtom;
+
+        typeAtom -> Underscore | ident | qualProperName | qualSymbol | string | hole | SymbolArr | LeftBrace RightBrace 
+                    | LeftParen RightParen | LeftBrace row RightBrace | LeftParen row RightParen
+                    | LeftParen type1 RightParen | LeftParen typeKindedAtom DoubleColon type RightParen;
+
+        typeKindedAtom -> Underscore | qualProperName | qualSymbol | hole  | LeftBrace RightBrace 
+                    | LeftParen RightParen | LeftBrace row RightBrace | LeftParen row RightParen
+                    | LeftParen type1 RightParen | LeftParen typeKindedAtom DoubleColon type RightParen;
+        
+        qualOp -> Operator | QualOperator | OperatorSub | OperatorHash |LeftFatArrow | Colon;
+        
+    
+       
         qualIdent -> LowerName | QualLowerName | As | Hiding | Kind | Role | Nominal | Representational | Phantom;
         qualProperName -> UpperName | QualUpperName;
         qualSymbol -> SymbolName | QualSymbolName | SymbolDoubleDot;
@@ -98,5 +111,75 @@ grammar EternaleR {
         char -> Char;
         string -> String | RawString;
         number -> Int | Number;
+        hole -> Hole;
+
+        ident -> LowerName | As | Hiding | Kind | Role | Nominal | Representational | Phantom;
+        typeVarBinding -> ident | LeftParen ident DoubleColon type RightParen;
+        forall -> Forall^ | Forallu^;
+
+        label -> LowerName | String | RawString | Ado | As | Case | Class | Data | Derive | Do | Else | False | Forall | Foreign
+                  | Hiding | Import | If | In | Infix | Infixl | Infixr | Instance | Kind | Let | Module | Newtype | Nominal | Of
+                  | Phantom | Representational | Role | Then | True | Type | Where;
+
+        rowLabel -> label DoubleColon type;
+
+        row -> Pipe type | sep<rowLabel,Dot> | sep<rowLabel,Dot> Pipe type;
+
+        sep<a,s> -> sep1<a,s>;
+        sep1<a,s> -> a | sep1<a,s> s a;
+        manySep<a,sep> -> manySep1<a,sep>;
+        manySep1<a,sep> -> a | manySep1<a,sep> sep a;
+        delim<a,b,c,d> -> a d | a sep<b,c> d;
+       
+
+        expr -> expr1 | expr1 DoubleColon type;
+        expr1 -> expr2 | expr1 qualOp expr2;
+        expr2 -> expr3 | expr2 Tick exprBacktick Tick expr3;
+        exprBacktick ->  expr3 | exprBacktick qualOp expr3;
+        expr3 -> expr4 | OperatorSub expr3;
+        expr4 -> expr5 | expr4 expr5;
+        expr5 -> expr6 | If expr Then expr Else expr | doBlock | adoBlock In expr | Backslash (binderAtom)+ RightArrow expr
+                 | Let LayoutStart manySep<letBinding,LayoutSep> LayoutEnd In expr
+                 | Case sep<expr,Dot> Of LayoutStart manySep<caseBranch,LayoutSep> LayoutEnd
+                 | Case sep<expr,Dot> Of LayoutStart sep<binder1,Dot> RightArrow LayoutEnd exprWhere
+                 | Case sep<expr,Dot> Of LayoutStart sep<binder1,Dot> LayoutEnd guardedCase;
+       
+        expr6 -> expr7 |expr7 LeftBrace RightBrace | expr7 LeftBrace sep<recordUpdateOrLabel,Dot>  RightBrace;
+        expr7 -> exprAtom | exprAtom Dot sep<label, Dot>;
+
+        exprAtom -> Underscore | hole | qualIdent | 
+                    qualProperName | qualSymbol | boolean |
+                    boolean | char | string | number | LeftParen expr RightParen |
+                    delim<LeftParen,expr,Dot,RightParen> | delim<LeftBrace,recordLabel,Dot,RightBrace>;
+        
+        recordLabel -> label | label Equals expr | label Colon expr;
+     
+        
+        letBinding -> ident DoubleColon type | ident guardedDecl | ident (binderAtom)+ guardedDecl | binder1 Equals exprWhere;
+        caseBranch -> sep<binder1,LayoutSep> guardedCase;
+       
+        
+        exprWhere -> expr | expr Where LayoutStart manySep<letBinding,LayoutSep> LayoutEnd;
+        guardedDecl -> Equals exprWhere | (guardedDeclExpr)+;
+        guardedDeclExpr -> guard Equals exprWhere;
+        guardedCase -> RightArrow exprWhere | (guardedCaseExpr)+;
+        guardedCaseExpr -> guard RightArrow exprWhere;
+
+        doBlock -> Do LayoutStart manySep<doStatement,LayoutSep> LayoutEnd;
+        adoBlock -> Ado LayoutStart LayoutEnd | Ado LayoutStart manySep<doStatement,LayoutSep> LayoutEnd;
+        doStatement -> Let LayoutStart manySep<letBinding,LayoutSep> LayoutEnd | expr | binder LeftArrow expr;
+
+        guard -> Pipe sep<patternGuard,Dot>;
+        patternGuard -> expr1 | binder LeftArrow expr1;
+        binder -> binder1 | binder1 DoubleColon type;
+        binder1 -> binder2 | binder1 qualOp  binder2;
+        binder2 -> (binderAtom)+;
+        binderAtom -> Underscore | ident | ident OperatorAt binderAtom | qualProperName | boolean | char | string | number | OperatorSub number
+                      | LeftParen binder RightParen;
+
+        recordUpdate -> label Equals expr | label LayoutStart sep<recordUpdate,Dot> LayoutEnd;
+        recordUpdateOrLabel -> label Colon expr | label | label Equals expr | label LayoutStart sep<recordUpdate,Dot> LayoutEnd;
+       
     }
+  
 }

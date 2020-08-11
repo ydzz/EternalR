@@ -1,5 +1,5 @@
 use hime_redist::text::{Text};
-use hime_redist::parsers::{Parser,lrk::{self,LRkParser,LRkAutomaton}};
+use hime_redist::parsers::{Parser,lrk::{self,LRkParser,LRkAutomaton},rnglr::{self,RNGLRParser,RNGLRAutomaton}};
 use hime_redist::ast::{AstNode,AstCell};
 use hime_redist::result::ParseResult;
 use hime_redist::symbols::{Symbol,SemanticBody,SemanticElementTrait};
@@ -10,7 +10,7 @@ use crate::types::{SourceToken};
 const PARSER_AUTOMATON: &[u8] = include_bytes!("hime/EternaleRParser.bin");
 #[test]
 fn test_parser() {
-    let code_string = String::from("'a'");//std::fs::read_to_string("tests/main.purs").unwrap();
+    let code_string = String::from("case ma of \n Just a -> 1 \n Nothing -> 2");//std::fs::read_to_string("tests/main.purs").unwrap();
     let text = Text::new(code_string.as_str());
     let mut mylex = Lexer::new(code_string.as_str());
     let raw_tokens = mylex.lex();
@@ -28,8 +28,8 @@ fn test_parser() {
    
     {
         let data = result.get_parsing_data();
-        let automaton = LRkAutomaton::new(PARSER_AUTOMATON);
-        let mut parser = LRkParser::new(&mut lexer, automaton, data.2, &mut my_actions);
+        let automaton = RNGLRAutomaton::new(PARSER_AUTOMATON);
+        let mut parser = RNGLRParser::new(&mut lexer, automaton, data.2, &mut my_actions);
         parser.parse();
 
         let ast = result.get_ast();

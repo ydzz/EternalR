@@ -127,7 +127,7 @@ impl<'a> Lexer<'a> where {
             '<'  => {  self.next(); self.or_operator2(Token::TokLeftArrow(SourceStyle::ASCII), chr, '-') },
             '-'  => {  self.next(); self.or_operator2(Token::TokRightArrow(SourceStyle::ASCII), chr, '>') },
             '='  => {  self.next(); self.or_operator2_(Token::TokEquals,Token::TokRightFatArrow(SourceStyle::ASCII), chr, '>') },
-            ':'  => {  self.next(); self.or_operator2_(Token::TokOperator(String::from(":")),Token::TokDoubleColon(SourceStyle::ASCII), chr, ':') },
+            ':'  => {  self.next(); self.or_operator2_(Token::TokColon,Token::TokDoubleColon(SourceStyle::ASCII), chr, ':') },
             '?' => { self.next(); self.hole() },
             '\'' => { self.next(); self.lchar() },
             '\"' => {self.next();self.lstring() },
@@ -703,7 +703,25 @@ impl<'a> Lexer<'a> where {
       }
       let mut ret = String::default();
       ret.push(chr1);
-      return Ok(Token::TokOperator(ret ));
+      Lexer::get_operator_token(vec![],ret)
+   }
+
+   fn get_operator_token(qual:Vec<String>,op_str:String) -> Result<Token,ParserErrorType> {
+      match op_str.as_str() {
+         "<=" if qual.len() == 0 => Ok(Token::TokLeftFatArrow(SourceStyle::ASCII)),
+         "⇐" if qual.len() == 0 => Ok(Token::TokLeftFatArrow(SourceStyle::Unicode)),
+         ":" if qual.len() == 0  => Ok(Token::TokColon),
+         "-" if qual.len() == 0 => Ok(Token::TokOperatorSub),
+         "@" if qual.len() == 0 => Ok(Token::TokOperatorAt),
+         "#" if qual.len() == 0 => Ok(Token::TokOperatorHash),
+         _ => {
+            if qual.len() == 0 {
+               Ok(Token::TokOperator(op_str))
+            } else {
+               Ok(Token::TokQualOperator(qual,op_str))
+            }
+         }
+      }
    }
 
    fn or_operator2_(&mut self,tok1:Token,tok2:Token,chr1:char,chr2:char) -> Result<Token,ParserErrorType> {
@@ -731,22 +749,7 @@ impl<'a> Lexer<'a> where {
       let rest = self.string.take_while(Lexer::is_symbol_char).unwrap_or_default();
       let mut op_str = String::from_iter(pre.iter());
       op_str.push_str(rest);
-      match op_str.as_str() {
-         "<=" if qual.len() == 0 => Ok(Token::TokLeftFatArrow(SourceStyle::ASCII)),
-         "⇐" if qual.len() == 0 => Ok(Token::TokLeftFatArrow(SourceStyle::Unicode)),
-         ":" if qual.len() == 0  => Ok(Token::TokColon),
-         "-" if qual.len() == 0 => Ok(Token::TokOperatorSub),
-         "@" if qual.len() == 0 => Ok(Token::TokOperatorAt),
-         "#" if qual.len() == 0 => Ok(Token::TokOperatorHash),
-         _ => {
-            if qual.len() == 0 {
-               Ok(Token::TokOperator(op_str))
-            } else {
-               Ok(Token::TokQualOperator(qual,op_str))
-            }
-         }
-      }
-      
+      Lexer::get_operator_token(qual, op_str)
    }
 
    fn  left_paren(&mut self) -> Result<Token,ParserErrorType>  {
