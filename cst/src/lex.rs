@@ -703,7 +703,7 @@ impl<'a> Lexer<'a> where {
       }
       let mut ret = String::default();
       ret.push(chr1);
-      Lexer::get_operator_token(vec![],ret)
+      self.operator(vec![], vec![chr1])
    }
 
    fn get_operator_token(qual:Vec<String>,op_str:String) -> Result<Token,ParserErrorType> {
