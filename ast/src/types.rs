@@ -1,5 +1,5 @@
-use serde::{Deserialize,Deserializer,de::{Visitor,MapAccess,Error}};
-use std::fmt;
+use serde::{Deserialize};
+use std::collections::HashMap;
 #[derive(Deserialize,Debug)]
 pub struct SourcePos {
    pub line:i32,
@@ -14,62 +14,41 @@ impl SourcePos {
 
 #[derive(Deserialize,Debug)]
 pub struct SourceSpan {
-  pub name:Option<String>,
+  #[serde(skip)] 
+  pub name:String,
   pub start:SourcePos,
   pub end:SourcePos
 }
 
 
+//type Ann = (SourceSpan, [Comment], Maybe SourceType, Maybe Meta)
+
+#[derive(Debug)]
+pub struct Ann (pub SourceSpan);
+
+#[derive(Debug)]
+pub struct ImportItem(pub Ann,pub String);
+
+#[derive(Debug)]
 pub struct Module {
-    pub name:String,
-   pub path:String
+   pub source_span:SourceSpan, 
+   pub name:String,
+   pub path:String,
+   pub version:String,
+   pub comments:Vec<Comment>,
+   pub exports: Vec<Ident>,
+   pub re_exports:HashMap<String,Vec<Ident>>,
+   pub imports:Vec<ImportItem>
+}
+#[derive(Debug)]
+pub enum Comment {
+  Line(String),
+  Block(String)
 }
 
-struct ModuleVisitor;
-
-impl<'a> Visitor<'a> for ModuleVisitor {
-    type Value = Module;
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-       
-        formatter.write_str("`secs` or `nanos`")
-    }
-
-   
-
-    fn visit_map<A>(self,mut vmap: A) -> Result<Module, A::Error> where  A: MapAccess<'a>, {
-      
-       let module = Module {name:String::from("231"),path:String::from("122") };
-      
-       Ok(module)
-    }
+#[derive(Debug)]
+pub enum Ident {
+  Ident(String),
+  GenIdent(Option<String>,i32),
+  UnusedIdent
 }
-
-impl<'a> Deserialize<'a> for Module {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'a> {
-        deserializer.deserialize_struct("Module",&["moduleName"], ModuleVisitor)
-    }
-}
-
-
-/*
-data Module a = Module
-  { moduleSourceSpan :: SourceSpan
-  , moduleComments :: [Comment]
-  , moduleName :: ModuleName
-  , modulePath :: FilePath
-  , moduleImports :: [(a, ModuleName)]
-  , moduleExports :: [Ident]
-  , moduleReExports :: Map ModuleName [Ident]
-  , moduleForeign :: [Ident]
-  , moduleDecls :: [Bind a]
-  } deriving (Show)
-*/
-
-
-#[test]
-fn test_json() {
-    let json = r#"{"moduleName":["Data","Array"]}"#;
-    let pos:Module = serde_json::from_str(json).unwrap();
-    
-}
-
