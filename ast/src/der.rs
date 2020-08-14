@@ -1,6 +1,6 @@
 use serde::{Deserialize,Deserializer,de::{Visitor,MapAccess,IgnoredAny}};
 use std::fmt;
-use crate::types::{Module,Comment,SourceSpan,Ident,Ann,ImportItem,Meta,ConstructorType,Bind,Expr};
+use crate::types::{Module,Literal,Comment,SourceSpan,Ident,Ann,ImportItem,Meta,ConstructorType,Bind,Expr};
 fn join_module_name(names:Vec<&str>) -> String {
     let mut ret = String::default();
     let mut idx = 0;
@@ -42,9 +42,7 @@ impl<'a> Visitor<'a> for ModuleVisitor {
               Ok(Some("modulePath")) => { path = vmap.next_value::<String>()?},
               Ok(Some("comments")) => { comments = vmap.next_value::<Vec<Comment>>()?},
               Ok(Some("imports")) => { imports = vmap.next_value::<Vec<ImportItem>>()?},
-              Ok(Some("decls")) => {
-
-              },
+              Ok(Some("decls")) => {  decls = vmap.next_value::<Vec<Bind<Ann>>>()?; },
               Ok(Some("exports")) => { 
                   let exports_str = vmap.next_value::<Vec<&str>>()?;
                   exports = exports_str.iter().map(|e| Ident::Ident(e.to_string())).collect();
@@ -231,6 +229,8 @@ impl<'a> Visitor<'a> for BindVisitor {
         let mut bind_type= "";
         let mut ann = None;
         let mut ident = None;
+        let mut expr = None;
+        let mut rec_items = vec![];
         //let mut 
         loop {
             match map.next_key() {
@@ -244,13 +244,26 @@ impl<'a> Visitor<'a> for BindVisitor {
                     ident = Some(Ident::Ident(map.next_value::<String>()?));
                 },
                 Ok(Some("expression")) => {
-                    ident = Some(Ident::Ident(map.next_value::<String>()?));
+                    expr = Some(map.next_value::<Expr<Ann>>()?);
+                },
+                Ok(Some("binds")) => {
+                    rec_items = map.next_value::<Vec<BindRecItem>>()?;
                 },
                 Ok(Some(_)) =>{ let _ = map.next_value::<IgnoredAny>();},
                 _ => break
             }
         }
-        todo!()
+        match bind_type {
+            "NonRec" => {
+                Ok(Bind::NonRec(ann.unwrap(),ident.unwrap(),Box::new(expr.unwrap()))) 
+            },
+            _ => {
+                let list = rec_items.drain(0..).map(|item| {
+                    ((item.ann,item.ident),Box::new(item.expr))
+                }).collect();
+                Ok(Bind::Rec(list))
+            }
+        }
     }
 }
 impl<'a> Deserialize<'a> for Bind<Ann> {
@@ -263,19 +276,76 @@ struct ExprVisitor;
 impl<'a> Visitor<'a> for ExprVisitor {
     type Value = Expr<Ann>;
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("parse BindVisitor error")
+        formatter.write_str("parse ExprVisitor error")
+    }
+    
+    fn visit_map<A>(self,mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'a>, {
+        let mut expr_type = "";
+        let mut ann = None;
+        loop {
+            match map.next_key() {
+                Ok(Some("type")) =>{ expr_type = map.next_value::<&str>()?;},
+                Ok(Some("annotation")) =>{ ann = Some(map.next_value::<Ann>()?);},
+                Ok(Some(_)) =>{ let _ = map.next_value::<IgnoredAny>();},
+                _ => break
+            }
+        }
+       //todo
+       Ok(Expr::Literal(ann.unwrap(),Literal::StringLiteral(expr_type.to_string())))
     }
 }
+
 impl<'a> Deserialize<'a> for Expr<Ann> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'a> {
         deserializer.deserialize_struct("Expr",&[""], ExprVisitor)
     }
 }
+////////////
+struct BindRecItem {
+    expr:Expr<Ann>,
+    ann:Ann,
+    ident:Ident
+}
+struct BindRecItemVisitor;
+impl<'a> Visitor<'a> for BindRecItemVisitor {
+    type Value = BindRecItem;
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("parse BindRecItemVisitor error")
+    }
 
+    fn visit_map<A>(self,mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'a>, {
+        let mut ann = None;
+        let mut ident = "";
+        let mut expr = None;
+        loop {
+            match map.next_key() {
+                Ok(Some("annotation")) => {
+                    ann = Some(map.next_value::<Ann>()?);
+                },
+                Ok(Some("identifier")) => {
+                    ident = map.next_value::<&str>()?;
+                }
+                Ok(Some("expression")) => {
+                    expr = Some(map.next_value::<Expr<Ann>>()?);
+                },
+                Ok(Some(_)) =>{ let _ = map.next_value::<IgnoredAny>();},
+                _ => break
+            }
+        }
+        Ok(BindRecItem {expr: expr.unwrap(),ann:ann.unwrap(),ident:Ident::Ident(ident.to_string())}) 
+    }
+}
+
+impl<'a> Deserialize<'a> for BindRecItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'a> {
+        deserializer.deserialize_struct("BindRecItem",&[""], BindRecItemVisitor)
+    }
+
+}
 
 #[test]
 fn test_json() {
     let json = std::fs::read_to_string("tests/corefn.json").unwrap();
     let pos:Module = serde_json::from_str(json.as_str()).unwrap();
-    dbg!(pos.foreign); 
+    dbg!(pos.decls); 
 }
