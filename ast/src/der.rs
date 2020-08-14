@@ -1,6 +1,6 @@
 use serde::{Deserialize,Deserializer,de::{Visitor,MapAccess,IgnoredAny}};
 use std::fmt;
-use crate::types::{Module,Comment,SourceSpan,Ident,Ann,ImportItem};
+use crate::types::{Module,Comment,SourceSpan,Ident,Ann,ImportItem,Meta,ConstructorType,Bind,Expr};
 fn join_module_name(names:Vec<&str>) -> String {
     let mut ret = String::default();
     let mut idx = 0;
@@ -28,6 +28,8 @@ impl<'a> Visitor<'a> for ModuleVisitor {
        let mut comments = vec![];
        let mut source_span = None;
        let mut exports = vec![];
+       let mut foreign = vec![];
+       let mut decls = vec![];
        let re_exports = std::collections::HashMap::new();
        let mut imports = vec![];
        loop {
@@ -40,10 +42,16 @@ impl<'a> Visitor<'a> for ModuleVisitor {
               Ok(Some("modulePath")) => { path = vmap.next_value::<String>()?},
               Ok(Some("comments")) => { comments = vmap.next_value::<Vec<Comment>>()?},
               Ok(Some("imports")) => { imports = vmap.next_value::<Vec<ImportItem>>()?},
+              Ok(Some("decls")) => {
+
+              },
               Ok(Some("exports")) => { 
                   let exports_str = vmap.next_value::<Vec<&str>>()?;
                   exports = exports_str.iter().map(|e| Ident::Ident(e.to_string())).collect();
               },
+              Ok(Some("foreign")) => { 
+                foreign =  vmap.next_value::<Vec<&str>>()?.iter().map(|e| Ident::Ident(e.to_string())).collect();
+             },
               Ok(Some("sourceSpan")) => {
                   let mut ss:SourceSpan = vmap.next_value()?;
                   ss.name = module_name.clone();
@@ -61,7 +69,9 @@ impl<'a> Visitor<'a> for ModuleVisitor {
           comments,
           exports,
           re_exports,
-          imports
+          imports,
+          foreign,
+          decls
         })
     }
 }
@@ -139,14 +149,16 @@ impl<'a> Visitor<'a> for AnnVisitor {
 
     fn visit_map<A>(self,mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'a>, {
         let mut source_span = None;
+        let mut meta = None;
         loop {
             match map.next_key() {
                 Ok(Some("sourceSpan")) => { source_span = Some(map.next_value::<SourceSpan>()?); },
+                Ok(Some("meta")) => { meta = map.next_value::<Option<Meta>>()?; },
                 Ok(Some(_)) =>{ let _ = map.next_value::<IgnoredAny>();},
                 _ => break
             }
         }
-        Ok(Ann(source_span.unwrap()))
+        Ok(Ann(source_span.unwrap(),meta))
     }
 }
 
@@ -155,11 +167,115 @@ impl<'a> Deserialize<'a> for Ann {
         deserializer.deserialize_struct("Ann",&[""], AnnVisitor)
     }
 }
+////////////
+struct MetaVisitor;
+impl<'a> Visitor<'a> for MetaVisitor {
+    type Value = Meta;
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("parse MetaVisitor error")
+    }
+    fn visit_map<A>(self,mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'a>, {
+        let mut idents = None;
+        let mut constructor_type = None;
+        let mut is_constructor = false;
+        let mut meta_type = Meta::IsForeign;
+        loop {
+            match map.next_key() {
+                Ok(Some("metaType")) => {
+                    let type_str = map.next_value::<String>()?;
+                    match type_str.as_str() {
+                        "IsForeign" => meta_type = Meta::IsForeign,
+                        "IsNewtype" => meta_type = Meta::IsNewtype,
+                        "IsTypeClassConstructor" => meta_type = Meta::IsTypeClassConstructor,
+                        "IsWhere" => meta_type = Meta::IsWhere,
+                        "IsConstructor" => is_constructor = true,
+                        _ => ()
+                    }
+                },
+                Ok(Some("identifiers")) => {
+                    let arr = map.next_value::<Vec<&str>>()?;
+                    idents = Some(arr.iter().map(|s| Ident::Ident(s.to_string())).collect());
+                },
+                Ok(Some("constructorType")) => {
+                    let type_str = map.next_value::<String>()?;
+                    match type_str.as_str() {
+                        "ProductType" => constructor_type = Some(ConstructorType::ProductType),
+                        _ => constructor_type = Some(ConstructorType::SumType),
+                    }
+                },
+                Ok(Some(_)) =>{ let _ = map.next_value::<IgnoredAny>();},
+                _ => break
+            }
+        }
+        if is_constructor {
+            meta_type = Meta::IsConstructor(constructor_type.unwrap(),idents.unwrap());
+        }
+        Ok(meta_type)
+    }
+}
+
+impl<'a> Deserialize<'a> for Meta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'a> {
+        deserializer.deserialize_struct("Meta",&[""], MetaVisitor)
+    }
+}
+////////////
+struct BindVisitor;
+impl<'a> Visitor<'a> for BindVisitor {
+    type Value = Bind<Ann>;
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("parse BindVisitor error")
+    }
+
+    fn visit_map<A>(self,mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'a>, {
+        let mut bind_type= "";
+        let mut ann = None;
+        let mut ident = None;
+        //let mut 
+        loop {
+            match map.next_key() {
+                Ok(Some("bindType")) => {
+                    bind_type = map.next_value::<&str>()?;
+                },
+                Ok(Some("annotation")) => {
+                    ann = Some(map.next_value::<Ann>()?);
+                },
+                Ok(Some("identifier")) => {
+                    ident = Some(Ident::Ident(map.next_value::<String>()?));
+                },
+                Ok(Some("expression")) => {
+                    ident = Some(Ident::Ident(map.next_value::<String>()?));
+                },
+                Ok(Some(_)) =>{ let _ = map.next_value::<IgnoredAny>();},
+                _ => break
+            }
+        }
+        todo!()
+    }
+}
+impl<'a> Deserialize<'a> for Bind<Ann> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'a> {
+        deserializer.deserialize_struct("Bind",&[""], BindVisitor)
+    }
+}
+////////////
+struct ExprVisitor;
+impl<'a> Visitor<'a> for ExprVisitor {
+    type Value = Expr<Ann>;
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("parse BindVisitor error")
+    }
+}
+impl<'a> Deserialize<'a> for Expr<Ann> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'a> {
+        deserializer.deserialize_struct("Expr",&[""], ExprVisitor)
+    }
+}
 
 
 #[test]
 fn test_json() {
     let json = std::fs::read_to_string("tests/corefn.json").unwrap();
     let pos:Module = serde_json::from_str(json.as_str()).unwrap();
-    dbg!(pos.imports); 
+    dbg!(pos.foreign); 
 }
