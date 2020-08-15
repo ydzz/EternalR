@@ -96,7 +96,7 @@ pub enum Expr<A> {
   Literal(A,Literal<Box<Expr<A>>>),
   Constructor(A,ProperName,ProperName,Vec<Ident>),
   Accessor(A,String,Box<Expr<A>>),
-  ObjectUpdate(A,Box<Expr<A>>,Vec<(String,Expr<A>)>),
+  ObjectUpdate(A,Box<Expr<A>>,HashMap<String,Box<Expr<A>>>),
   Abs(A,Ident,Box<Expr<A>>),
   App(A,Box<Expr<A>>,Box<Expr<A>>),
   Var(A,Qualified<Ident>),
@@ -106,7 +106,7 @@ pub enum Expr<A> {
 
 
 #[derive(Debug)]
-pub struct Qualified<A>(Option<String>,A);
+pub struct Qualified<A>(pub Option<String>,pub A);
 
 pub type Guard<A> = Expr<A>;
 
