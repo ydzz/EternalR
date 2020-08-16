@@ -1,6 +1,6 @@
 use serde::{Deserialize,Deserializer,de::{Visitor,MapAccess,IgnoredAny}};
 use std::fmt;
-use crate::types::{Binder,Qualified,CaseAlternative,ProperName,SourcePos,Module,Literal,Comment,SourceSpan,Ident,Ann,ImportItem,Meta,ConstructorType,Bind,Expr};
+use crate::types::{Binder,Guard,Qualified,CaseAlternative,ProperName,SourcePos,Module,Literal,Comment,SourceSpan,Ident,Ann,ImportItem,Meta,ConstructorType,Bind,Expr};
 fn join_module_name(names:Vec<&str>) -> String {
     let mut ret = String::default();
     let mut idx = 0;
@@ -274,17 +274,17 @@ impl<'a> Deserialize<'a> for Bind<Ann> {
 }
 
 
-fn qualified_from_value(val:&serde_json::Value) -> Option<Qualified<Ident>> {
+fn qualified_from_value<A>(f:impl Fn(&str) -> A,val:&serde_json::Value) -> Option<Qualified<A>> {
     let val_obejct = val.as_object()?;
     let id_str = val_obejct.get("identifier")?.as_str()?;
     let module_name:Option<String> = val_obejct.get("moduleName")?.as_array()
                                                .and_then(|v| v.iter().map(|sv| sv.as_str()).collect())
                                                .map(|arr| join_module_name(arr) );
    
-    Some(Qualified(module_name,Ident::Ident(id_str.to_string())))
+    Some(Qualified(module_name,f(id_str)))
 }
 
-fn literal_from_value(val:&serde_json::Value) ->Option<Literal<Box<Expr<Ann>>>> {
+fn literal_from_value<T>(f:impl Fn(&serde_json::Value) -> T,val:&serde_json::Value) ->Option<Literal<T>> {
     let val_object = val.as_object()?;
     let value = val_object.get("value")?;
     match val_object.get("literalType")?.as_str()? {
@@ -298,38 +298,39 @@ fn literal_from_value(val:&serde_json::Value) ->Option<Literal<Box<Expr<Ann>>>> 
         "BooleanLiteral" => Some(Literal::BooleanLiteral(value.as_bool()?)),
         "ArrayLiteral" => {
             let arr = value.as_array()?;
-            let exprs:Vec<Box<Expr<Ann>>> = arr.iter().map(|v| Box::new(expr_from_value(v).unwrap()) ).collect();
+            let exprs:Vec<T> = arr.iter().map(f).collect();
             Some(Literal::ArrayLiteral(exprs))
         },
         "ObjectLiteral" => {
-            
-            Some(Literal::ObjectLiteral(object_from_value(value)?))
+            Some(Literal::ObjectLiteral(object_from_value(f,value)?))
         }
         _ => None
     }
 }
 
-fn object_from_value(val:&serde_json::Value) -> Option<std::collections::HashMap<String,Box<Expr<Ann>> >>  {
+fn object_from_value<T>(f:impl Fn(&serde_json::Value) -> T,val:&serde_json::Value) -> Option<std::collections::HashMap<String,T>>  {
     let arr = val.as_array()?;
     let mut object = std::collections::HashMap::new();
     for item in arr {
         let item_arr = item.as_array()?;
         let str_key = item_arr[0].as_str()?;
-        let expr = expr_from_value(&item_arr[1])?;
-        object.insert(str_key.to_string(), Box::new(expr) );
+        object.insert(str_key.to_string(), f(&item_arr[1]));
     }
     Some(object)
 }
 
+
+
 fn expr_from_value(val:&serde_json::Value) -> Option<Expr<Ann>> {
+    
     let val_object = val.as_object()?;
     let expr_type=  val_object.get("type")?.as_str()?;
     let ann = ann_from_value(val_object.get("annotation")?)?;
-    
+   
     match expr_type {
-        "Var" => Some(Expr::Var(ann,qualified_from_value(val_object.get("value")?)? )) ,
+        "Var" => Some(Expr::Var(ann,qualified_from_value(|s| Ident::Ident(s.to_string()),val_object.get("value")?)? )) ,
         "Literal" => {
-            let literal = literal_from_value(val_object.get("value")?).unwrap();
+            let literal = literal_from_value(|v|Box::new(expr_from_value(v).unwrap()),val_object.get("value")?).unwrap();
             Some(Expr::Literal(ann,literal))
         },
         "Constructor" => {
@@ -345,7 +346,7 @@ fn expr_from_value(val:&serde_json::Value) -> Option<Expr<Ann>> {
         },
         "ObjectUpdate" => {
             let expr = expr_from_value(val_object.get("expression")?)? ;
-            let updates = object_from_value(val_object.get("updates")?)?;
+            let updates = object_from_value(|v| Box::new(expr_from_value(v).unwrap()),val_object.get("updates")?)?;
             Some(Expr::ObjectUpdate(ann,Box::new(expr),updates))
         },
         "Abs" => {
@@ -363,14 +364,40 @@ fn expr_from_value(val:&serde_json::Value) -> Option<Expr<Ann>> {
                                                       .as_array()?.iter()
                                                       .map(|v| expr_from_value(v).unwrap()).collect();
             
-            None
-        }
-         typ => {println!("aaa{:?}",typ) ;None }
+            let case_alter = val_object.get("caseAlternatives")?.as_array()?
+                                                                .iter().map(|v| case_alternative_from_value(v).unwrap()).collect();
+            Some(Expr::Case(ann,case_exprs,case_alter))
+        },
+        "Let" => {
+            let expr = expr_from_value(val_object.get("expression")?)?;
+            let binds = val_object.get("binds")?.as_array()?.iter().map(|v| bind_from_value(v).unwrap()).collect();
+            Some(Expr::Let(ann,binds,Box::new(expr)))
+        },
+         _ => None
        }
 }
 
 fn case_alternative_from_value(val:&serde_json::Value) -> Option<CaseAlternative<Ann>> {
-    None
+    let binders:Vec<Binder<Ann>> = val.get("binders")?.as_array()?.iter().map(|v| binder_from_value(v).unwrap()).collect();
+    let is_guarded = val.get("isGuarded")?.as_bool()?;
+    if is_guarded {
+        let arr = val.get("expressions")?.as_array()?;
+        let gexprs:Vec<(Guard<Ann>,Expr<Ann>)> = arr.iter().map(|v| {
+           let guard_expr = expr_from_value(v.get("guard").unwrap()).unwrap();
+           let expression = expr_from_value(v.get("expression").unwrap()).unwrap();
+           (guard_expr,expression)
+        }).collect();
+        Some(CaseAlternative {
+            alternative_binders:binders,
+            alternative_result:Ok(gexprs)
+        })
+    } else {
+        let expression = expr_from_value(val.get("expression")?)?;
+        Some(CaseAlternative {
+            alternative_binders:binders,
+            alternative_result:Err(expression)
+        })
+    }
 }
 
 fn binder_from_value(val:&serde_json::Value) -> Option<Binder<Ann>> {
@@ -383,7 +410,19 @@ fn binder_from_value(val:&serde_json::Value) -> Option<Binder<Ann>> {
             Some(Binder::VarBinder(ann,ident))
         },
         "LiteralBinder" => {
-            None
+            let literal = literal_from_value(|f| Box::new(binder_from_value(f).unwrap()) , val.get("literal")?)?;
+            Some(Binder::LiteralBinder(ann,literal))
+        },
+        "ConstructorBinder" => {
+            let type_name =  qualified_from_value(|s|ProperName::TypeName(s.to_string()), val.get("typeName")?)?;
+            let constructor_name = qualified_from_value(|s| ProperName::ConstructorName(s.to_string()),val.get("constructorName")?)?;
+            let binders:Vec<Binder<Ann>> = val.get("binders")?.as_array()?.iter().map(|v| binder_from_value(v).unwrap() ).collect();
+            Some(Binder::ConstructorBinder(ann,type_name,constructor_name,binders))
+        },
+        "NamedBinder" => {
+            let ident = Ident::Ident(val.get("identifier")?.as_str()?.to_string());
+            let bind = binder_from_value(val.get("binder")?)?;
+            Some(Binder::NamedBinder(ann,ident,Box::new(bind)))
         },
         _ => None
     }
@@ -428,6 +467,26 @@ fn source_span_from_value(val:&serde_json::Value) -> Option<SourceSpan> {
     })
 }
 
+fn bind_from_value(val:&serde_json::Value) -> Option<Bind<Ann>> {
+    match val.get("bindType")?.as_str()? {
+        "NonRec" => {
+            let identifier = Ident::Ident(val.get("identifier")?.as_str()?.to_string());
+            let ann = ann_from_value(val.get("annotation")?)?;
+            let expr =expr_from_value(val.get("expression")?)?;
+            Some(Bind::NonRec(ann,identifier,Box::new(expr)))
+        },
+        "Rec" => {
+            let lst = val.get("binds")?.as_array()?.iter().map(|v| {
+                let identifier = Ident::Ident(v.get("identifier").unwrap().as_str().unwrap().to_string());
+                let ann = ann_from_value(v.get("annotation").unwrap()).unwrap();
+                let expr = expr_from_value(v.get("expression").unwrap()).unwrap();
+                ((ann,identifier),Box::new(expr))
+            }).collect();
+            Some(Bind::Rec(lst))
+        },
+        _ => None
+    }
+}
 ////////////
 struct BindRecItem {
     expr:Expr<Ann>,
@@ -474,7 +533,10 @@ impl<'a> Deserialize<'a> for BindRecItem {
 
 #[test]
 fn test_json() {
-    let json = std::fs::read_to_string("tests/corefn.json").unwrap();
+ 
+    let json = std::fs::read_to_string("tests/corefn2.json").unwrap();
     let pos:Module = serde_json::from_str(json.as_str()).unwrap();
-    //dbg!(pos.decls); 
+    let debug_str = format!("{:?}",pos);
+    std::fs::write("a.out", debug_str);
+    
 }

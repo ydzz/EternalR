@@ -112,8 +112,8 @@ pub type Guard<A> = Expr<A>;
 
 #[derive(Debug)]
 pub struct CaseAlternative<A> {
-  alternative_binders:Vec<Binder<A>>,
-  alternative_result:Result<Vec<(Guard<A>,Expr<A>)>,Expr<A>>
+  pub alternative_binders:Vec<Binder<A>>,
+  pub alternative_result:Result<Vec<(Guard<A>,Expr<A>)>,Expr<A>>
 }
 
 #[derive(Debug)]
