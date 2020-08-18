@@ -17,11 +17,14 @@ fn test_first() {
 
    let thread = gluon::new_vm();
    
-  
-   //thread.load_script("in",code_str);
-  
-   gluon::base::mk_ast_arena!(arena);
    let type_cache = gluon::base::types::TypeCache::new();   
+   let mut pexpr = thread.parse_expr(&type_cache,"",code_str).unwrap();
+   dbg!(&pexpr);
+   thread.typecheck_expr("",code_str,&mut pexpr);
+   dbg!(pexpr);
+   /*
+   gluon::base::mk_ast_arena!(arena);
+  
 
    let mut symbols = Symbols::new();
    let mut sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -53,5 +56,5 @@ fn test_first() {
             dbg!(err.value);
          }
       }
-   }
+   }*/
 }

@@ -1,15 +1,28 @@
 module Main where
 
-newtype Player = Player {
-    name::String,
-    age::Int
-}
+constString :: String
+constString = "Stringggggggggg"
 
-data Maybe a = Just a | Nothing
+constInt :: Int
+constInt = 12450
 
-myInt::Int
-myInt = 123
+constChar :: Char
+constChar = '1'
 
-swap::Maybe Int -> Int -> Int
-swap Nothing i2 = i2
-swap (Just i) i2 = i
+constNumber::Number
+constNumber = 3.14159265358
+
+constArray :: Array Int
+constArray = [1,2,3]
+
+constRecord :: { a :: Int, b :: String}
+constRecord = {a : 1,b : "a" }
+
+mularg::Int -> Int -> Int
+mularg n nn = n
+
+class Default a where
+    def::a
+  
+classFunc::forall a.Default a => a -> a
+classFunc v = v

@@ -78,6 +78,7 @@ fn test_trans() {
    let first_purs_string = std::fs::read_to_string("tests/output/Main/corefn.json").unwrap();
    let module:Module = serde_json::from_str(first_purs_string.as_str()).unwrap();
    for decl in module.decls {
-      let vm_expr = translate_bind(&decl,todo!());
+       dbg!(&decl);
+      //let vm_expr = translate_bind(&decl,todo!());
    }
 }

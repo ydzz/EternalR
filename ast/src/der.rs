@@ -1,6 +1,6 @@
 use serde::{Deserialize,Deserializer,de::{Visitor,MapAccess,IgnoredAny}};
 use std::fmt;
-use crate::types::{Binder,Guard,Qualified,CaseAlternative,ProperName,SourcePos,Module,Literal,Comment,SourceSpan,Ident,Ann,ImportItem,Meta,ConstructorType,Bind,Expr};
+use crate::types::*;
 fn join_module_name(names:Vec<&str>) -> String {
     let mut ret = String::default();
     let mut idx = 0;
@@ -336,7 +336,10 @@ fn expr_from_value(val:&serde_json::Value) -> Option<Expr<Ann>> {
         "Constructor" => {
             let proper_name = ProperName::TypeName(val_object.get("typeName")?.as_str()?.to_string());
             let constructor_name = ProperName::ConstructorName(val_object.get("constructorName")?.as_str()?.to_string());
-            let fileds:Vec<Ident> = val_object.get("fieldNames").iter().map(|v| Ident::Ident(v.as_str().unwrap().to_string())).collect();
+            let fileds:Vec<Ident> = val_object.get("fieldNames")?.as_array()?.iter()
+                                   .map(|v| {
+                                      Ident::Ident(v.as_str().unwrap().to_string())
+                                    }).collect();
             Some(Expr::Constructor(ann,proper_name,constructor_name,fileds))
         },
         "Accessor" => {
@@ -486,6 +489,130 @@ fn bind_from_value(val:&serde_json::Value) -> Option<Bind<Ann>> {
         },
         _ => None
     }
+}
+
+fn ann_type_from_value(val:&serde_json::Value) -> Option<Type<()>> {
+    let val_object = val.as_object()?;
+    let tag = val_object.get("tag")?.as_str()?;
+    let contents = val_object.get("contents");
+    match tag {
+        "TUnknown" => Some(Type::TUnknown((),contents?.as_i64()? as i32)),
+        "TypeVar" => Some(Type::TypeVar((),contents?.as_str()?.to_string())),
+        "TypeLevelString" => Some(Type::TypeLevelString((),contents?.as_str()?.to_string())),
+        "TypeWildcard" => {
+            Some(Type::TypeWildcard((),contents.and_then(|c| c.as_str().map(|s| s.to_string()))))
+         },
+         "TypeConstructor" => {
+            let qual = type_qual_from_value(contents?, |s| ProperName::TypeName(s))?;
+            Some(Type::TypeConstructor((),qual))
+         },
+         "TypeOp" => {
+            let qual = type_qual_from_value(contents?, |s| OpName::TypeOpName(s))?;
+            Some(Type::TypeOp((),qual))
+         },
+         "TypeApp" => {
+             let arr = contents?.as_array()?;
+             let ta = ann_type_from_value(&arr[0])?;
+             let tb = ann_type_from_value(&arr[1])?;
+             Some(Type::TypeApp((),Box::new(ta),Box::new(tb)))
+         },
+         "KindApp" => {
+            let arr = contents?.as_array()?;
+            let ta = ann_type_from_value(&arr[0])?;
+            let tb = ann_type_from_value(&arr[1])?;
+            Some(Type::KindApp((),Box::new(ta),Box::new(tb)))
+         },
+         "ForAll" => {
+            let arr = contents?.as_array()?;
+            match arr.len() {
+                3 => {
+                    let str = arr[0].as_str()?.to_string();
+                    let ty =  ann_type_from_value(&arr[1])?;
+                    let e = arr[2].as_i64().map(|n| n as i32);
+                    Some(Type::ForAll((),str,None,Box::new(ty),e))
+                },
+                4 => {
+                    let str = arr[0].as_str()?.to_string();
+                    let ty =  ann_type_from_value(&arr[1])?;
+                    let ty2 =  ann_type_from_value(&arr[1])?;
+                    let e = arr[2].as_i64().map(|n| n as i32);
+                    Some(Type::ForAll((),str,Some(Box::new(ty)),Box::new(ty2),e))
+                },
+                _ => None
+            }
+         },
+         "ConstrainedType" => {
+             let arr = contents?.as_array()?;
+             let con = constraint_from_value(&arr[0])?;
+             let ty = ann_type_from_value(&arr[1])?;
+             Some(Type::ConstrainedType((),con,Box::new(ty)))
+         },
+         "Skolem" => {
+            let arr = contents?.as_array()?;
+            let str = arr[0].as_str()?.to_string();
+            let typ = ann_type_from_value(&arr[1]);
+            let i = arr[2].as_i64()?;
+            let i2 = arr[3].as_i64()?;
+            Some(Type::Skolem((),str,typ.map(|t| Box::new(t)),i as i32,i2 as i32))
+         }
+         "REmpty" =>   Some(Type::REmpty(())),
+         "RCons" => {
+            let arr = contents?.as_array()?;
+            let label = arr[0].as_str()?.to_string();
+            let typ = ann_type_from_value(&arr[1])?;
+            let typ2 = ann_type_from_value(&arr[1])?;
+            Some(Type::RCons((),label,Box::new(typ),Box::new(typ2)))
+         },
+         "KindedType" => {
+            let arr = contents?.as_array()?;
+            let ta = ann_type_from_value(&arr[0])?;
+            let tb = ann_type_from_value(&arr[1])?;
+            Some(Type::KindedType((),Box::new(ta),Box::new(tb)))
+         },
+         "BinaryNoParensType" => {
+            let arr = contents?.as_array()?;
+            let ta = ann_type_from_value(&arr[0])?;
+            let tb = ann_type_from_value(&arr[1])?;
+            let tc = ann_type_from_value(&arr[2])?;
+            Some(Type::BinaryNoParensType((),Box::new(ta),Box::new(tb),Box::new(tc)))
+         }
+        _ => None
+    }
+}
+
+fn constraint_from_value(val:&serde_json::Value) -> Option<Constraint<()>> {
+    let class = val.get("constraintClass")?;
+    let pname = type_qual_from_value(class, |s| ProperName::ClassName(s))?;
+    let args:Vec<_> = val.get("constraintArgs")?.as_array()?.iter().map(|t| ann_type_from_value(t).unwrap() ).collect();
+    let kind_args:Vec<_> = val.get("constraintKindArgs")
+                            .and_then(|v| v.as_array())
+                            .map(|varr| 
+                                varr.iter().map(|v| ann_type_from_value(v).unwrap()).collect()
+                            ).unwrap_or(vec![]);
+
+    let cdata = val.get("constraintData")?.as_object().map(|obj| {
+        let contents_array = obj.get("contents").unwrap().as_array().unwrap();
+        let str_list:Vec<Vec<String>> = contents_array[1].as_array().unwrap().iter()
+                                        .map(|arr| arr.as_array().unwrap().iter()
+                                        .map(|v| v.as_str().unwrap().to_string()).collect() ).collect();
+        let b = contents_array[1].as_bool().unwrap();
+        ConstraintData::PartialConstraintData(str_list,b)
+    });
+    Some(Constraint {
+        ann:(),
+        class:pname,
+        kind_args,
+        args,
+        data:cdata
+    })
+}
+
+fn type_qual_from_value<T>(val:&serde_json::Value,f:fn(String) -> T) -> Option<Qualified<T>>  {
+    let arr = val.as_array()?;
+    let qual_arr:Vec<&str> = arr[0].as_array()?.iter().map(|v| v.as_str().unwrap()).collect();
+    let qname = join_module_name(qual_arr);
+    let name = arr[1].as_str()?.to_string();
+    Some(Qualified(Some(qname),f(name))) 
 }
 ////////////
 struct BindRecItem {

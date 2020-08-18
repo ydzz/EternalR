@@ -130,3 +130,40 @@ pub enum Binder<A> {
   NamedBinder(A,Ident,Box<Binder<A>>),
   ConstructorBinder(A,Qualified<ProperName>,Qualified<ProperName>,Vec<Binder<A>>)
 }
+
+pub type Label = String;
+
+#[derive(Debug)]
+pub enum Type<A> {
+  TUnknown(A,i32),
+  TypeVar(A,String),
+  TypeLevelString(A,String),
+  TypeWildcard(A,Option<String>),
+  TypeConstructor(A,Qualified<ProperName>), //ProperName 'TypeName
+  TypeOp(A,Qualified<OpName>), //OpName 'TypeOpName
+  TypeApp(A,Box<Type<A>>,Box<Type<A>>),
+  KindApp(A,Box<Type<A>>,Box<Type<A>>),
+  ForAll(A,String,Option<Box<Type<A>>>,Box<Type<A>>,Option<i32>),
+  ConstrainedType(A,Constraint<A>,Box<Type<A>>),
+  Skolem(A,String,Option<Box<Type<A>>>,i32,i32),
+  REmpty(A),
+  RCons(A,Label,Box<Type<A>>,Box<Type<A>>),
+  KindedType(A,Box<Type<A>>,Box<Type<A>>),
+  BinaryNoParensType(A,Box<Type<A>>,Box<Type<A>>,Box<Type<A>>),
+  ParensInType(A,Box<Type<A>>)
+}
+
+#[derive(Debug)]
+pub enum ConstraintData {
+  PartialConstraintData(Vec<Vec<String>>,bool)
+}
+
+#[derive(Debug)]
+pub struct Constraint<A> {
+  pub ann:A,
+  pub class:Qualified<ProperName>, //ProperName 'ClassName
+  pub kind_args:Vec<Type<A>>,
+  pub args:Vec<Type<A>>,
+  pub data:Option<ConstraintData>
+}
+
