@@ -204,6 +204,7 @@ version = "0.1.0"
 dependencies = [
  "ast",
  "env_logger",
+ "futures 0.3.5",
  "gluon",
  "gluon_base",
  "gluon_parser",

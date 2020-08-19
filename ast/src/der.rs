@@ -148,15 +148,17 @@ impl<'a> Visitor<'a> for AnnVisitor {
     fn visit_map<A>(self,mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'a>, {
         let mut source_span = None;
         let mut meta = None;
+        let mut typ = None;
         loop {
             match map.next_key() {
                 Ok(Some("sourceSpan")) => { source_span = Some(map.next_value::<SourceSpan>()?); },
                 Ok(Some("meta")) => { meta = map.next_value::<Option<Meta>>()?; },
+                Ok(Some("type")) => { typ = map.next_value::<serde_json::Value>().ok(); },
                 Ok(Some(_)) =>{ let _ = map.next_value::<IgnoredAny>();},
                 _ => break
             }
         }
-        Ok(Ann(source_span.unwrap(),meta))
+        Ok(Ann(source_span.unwrap(),meta,ann_type_from_value(&typ.unwrap())))
     }
 }
 
@@ -435,7 +437,7 @@ fn ann_from_value(val:&serde_json::Value) -> Option<Ann> {
     let val_object = val.as_object()?;
     let span = source_span_from_value(val_object.get("sourceSpan")?)? ;
     let meta = val_object.get("meta").and_then(|m| meta_from_value(m));
-    Some(Ann(span,meta))
+    Some(Ann(span,meta,ann_type_from_value(val_object.get("type")?)))
 }
 
 fn meta_from_value(val:&serde_json::Value) -> Option<Meta> {
@@ -575,6 +577,27 @@ fn ann_type_from_value(val:&serde_json::Value) -> Option<Type<()>> {
             let tb = ann_type_from_value(&arr[1])?;
             let tc = ann_type_from_value(&arr[2])?;
             Some(Type::BinaryNoParensType((),Box::new(ta),Box::new(tb),Box::new(tc)))
+         },
+         "ParensInType" => {
+            let ty = ann_type_from_value(contents?)?;
+            Some(Type::ParensInType((),Box::new(ty)))
+         },
+         "KUnknown" => Some(Type::TUnknown((),contents?.as_i64()? as i32)),
+         "Row" => {
+            let ty = ann_type_from_value(contents?)?;
+            let c =Type::TypeConstructor((),prim_row());
+            Some(Type::TypeApp((),Box::new(c),Box::new(ty)))
+         },
+         "NamedKind" => {
+             let qual = type_qual_from_value(contents?,|s| ProperName::TypeName(s))?;
+             Some(Type::TypeConstructor((),qual))
+         },
+         "FunKind" => {
+            let arr = contents?.as_array()?;
+            let ta = ann_type_from_value(&arr[0])?;
+            let tb = ann_type_from_value(&arr[1])?;
+            let app = Type::TypeApp((),Box::new(Type::TypeConstructor((),prim_function())),Box::new(ta));
+            Some(Type::TypeApp((),Box::new(app),Box::new(tb)))
          }
         _ => None
     }

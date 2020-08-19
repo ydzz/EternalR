@@ -1,16 +1,18 @@
 module Main where
 
-constString :: String
-constString = "Stringggggggggg"
+
 
 constInt :: Int
 constInt = 12450
-
+{-
 constChar :: Char
 constChar = '1'
 
 constNumber::Number
 constNumber = 3.14159265358
+
+constString :: String
+constString = "Stringggggggggg"
 
 constArray :: Array Int
 constArray = [1,2,3]
@@ -26,3 +28,4 @@ class Default a where
   
 classFunc::forall a.Default a => a -> a
 classFunc v = v
+-}

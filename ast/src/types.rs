@@ -21,7 +21,7 @@ pub struct SourceSpan {
 }
 
 #[derive(Debug)]
-pub struct Ann (pub SourceSpan,pub Option<Meta>);
+pub struct Ann (pub SourceSpan,pub Option<Meta>,pub Option<Type<()>>);
 
 #[derive(Debug)]
 pub struct ImportItem(pub Ann,pub String);
@@ -167,3 +167,12 @@ pub struct Constraint<A> {
   pub data:Option<ConstraintData>
 }
 
+
+
+pub fn prim_row() -> Qualified<ProperName> {
+  Qualified(Some("Prim".to_string()),ProperName::TypeName("Row".to_string()))
+}
+
+pub fn prim_function() -> Qualified<ProperName> {
+  Qualified(Some("Prim".to_string()),ProperName::TypeName("Function".to_string()))
+}
