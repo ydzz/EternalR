@@ -1,7 +1,9 @@
 pub mod translate;
+pub mod utils;
 use gluon_vm::{types::TypeInfos,vm::{GlobalVmState},compiler::Compiler};
 use gluon_base::{symbol::{SymbolModule,Symbols},source::{FileMap}};
-
+#[macro_use]
+extern crate collect_mac;
 
 #[test]
 fn test_first() {
@@ -12,12 +14,8 @@ fn test_first() {
    use gluon::{ThreadExt};
    use gluon::{base::{symbol::{Symbols,SymbolModule}}};
    let code_str = r#"
-      let add a b = b
-      let constInt = 12450
-      let aa = 1
-      
-      
-      add constInt aa
+      let arr = [1,2,3]
+      in arr
    "#;
    gluon::base::mk_ast_arena!(arena);
    let mut symbols = Symbols::new();

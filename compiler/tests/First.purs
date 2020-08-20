@@ -1,10 +1,21 @@
 module Main where
 
+constRecord :: { varA :: Int, varB :: String}
+constRecord = {varA : 1,varB : "a" }
+{-
+constArray :: Array Int
+constArray = [1,2,3]
+
+
+
+constString :: String
+constString = "Stringggggggggg"
+
 
 
 constInt :: Int
 constInt = 12450
-{-
+
 constChar :: Char
 constChar = '1'
 
@@ -12,13 +23,13 @@ constNumber::Number
 constNumber = 3.14159265358
 
 constString :: String
-constString = "Stringggggggggg"
+constString = "Stringggggggggg"-}
 
+{-
 constArray :: Array Int
 constArray = [1,2,3]
 
-constRecord :: { a :: Int, b :: String}
-constRecord = {a : 1,b : "a" }
+
 
 mularg::Int -> Int -> Int
 mularg n nn = n

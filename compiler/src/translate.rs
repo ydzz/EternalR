@@ -1,22 +1,28 @@
-use ast::types::{self,Bind,Ann,Expr,Literal,Module};
+use ast::types::{self,Bind,Ann,Expr,Literal,Module,Type};
 use gluon_vm::core::{Expr as VMExpr,Literal as VMLiteral,self as vmcore,Named,Allocator};
 use gluon_base::{ast as gast,pos::{BytePos,Span,ByteIndex},types as gt,symbol::Symbol};
 use std::sync::Arc;
+use crate::utils::*;
 pub struct Translate<'a> {
     type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>,
-    alloc:Arc<Allocator<'a>> 
+    alloc:Arc<Allocator<'a>>,
+    dummy_symbol:gast::TypedIdent
 }
 
 impl<'a> Translate<'a> {
     pub fn new(type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>) -> Self {
         Translate {
             type_cache,
-            alloc:Arc::new(Allocator::new())
+            alloc:Arc::new(Allocator::new()),
+            dummy_symbol: gast::TypedIdent {
+                typ:type_cache.hole(),
+                name:Symbol::from(""),
+            }
         }
     }
 
     pub fn translate_module(&'a self,module:&Module) -> Result<&'a VMExpr<'a>,TranslateError> {
-        let export_module = VMExpr::Const(VMLiteral::Int(666),Span::new(ByteIndex(0), ByteIndex(0)));
+        let export_module = VMExpr::Const(VMLiteral::Int(114514),Span::new(ByteIndex(0), ByteIndex(0)));
         
         
         let mut pre_expr = self.alloc.arena.alloc(export_module);
@@ -30,7 +36,8 @@ impl<'a> Translate<'a> {
     pub fn translate_bind(&'a self,bind:&Bind<Ann>,pre_expr:&'a VMExpr<'a>) -> Result<VMExpr<'a>,TranslateError>  {
         match bind {
             Bind::NonRec(ann,id,expr) => {
-                let vm_expr:&'a VMExpr = self.alloc.arena.alloc(translate_expr(&expr)?);
+                let (expr,ty) = self.translate_expr(&expr)?;
+                let vm_expr:&'a VMExpr = self.alloc.arena.alloc(expr);
                 let span = source_span_to_byte_span(&ann.0);
                 let id_name = match id {
                     types::Ident::Ident(str) => str.to_owned(),
@@ -38,10 +45,9 @@ impl<'a> Translate<'a> {
                 };
                 let name = gast::TypedIdent {
                     name:Symbol::from(id_name),
-                    typ:self.type_cache.int()
+                    typ:ty
                 };
                 let named = Named::Expr(&vm_expr);
-
                 let let_binding = vmcore::LetBinding {
                     name,
                     expr:named,
@@ -52,42 +58,84 @@ impl<'a> Translate<'a> {
             Bind::Rec(_) => todo!()
         }
     }
+
+
+    pub fn translate_expr(&'a self,expr:&Expr<Ann>) -> Result<(VMExpr<'a>,gt::ArcType),TranslateError>  {
+        match expr {
+            Expr::Literal(ann,lit) => {
+                let typ = self.translate_type(ann.2.as_ref().unwrap());
+                let expr = self.translate_literal(lit,ann,&typ)?;
+                Ok((expr,typ))
+            },
+            _ => todo!()
+        }
+    }
+
+    fn translate_literal(&'a self,lit:&Literal<Box<Expr<Ann>>>,ann:&Ann,typ:&gt::ArcType) -> Result<VMExpr<'a>,TranslateError> {
+        let byte_pos = source_span_to_byte_span(&ann.0);
+        match lit {
+            Literal::NumericLiteral(rnum) => {
+                match rnum {
+                    Ok(inum) => Ok(VMExpr::Const(VMLiteral::Int(*inum as i64),byte_pos)) ,
+                    Err(fnum) => {
+                        let val =  ordered_float::NotNan::new(*fnum).map_err(|_| TranslateError::TranslateNotNanFloat)?;
+                        Ok(VMExpr::Const(VMLiteral::Float(val),byte_pos))
+                    },
+                }
+            }
+            Literal::StringLiteral(str) => Ok(VMExpr::Const(VMLiteral::String(Box::from(&str[..])),byte_pos)),
+            Literal::CharLiteral(chr) => Ok(VMExpr::Const(VMLiteral::Char(*chr),byte_pos)),
+            Literal::ArrayLiteral(arr) => {
+                let exprs = self.alloc.arena.alloc_fixed(arr.iter().map(|v| self.translate_expr(v).unwrap().0));
+                Ok(VMExpr::Data(gast::TypedIdent {
+                    typ:typ.clone(),
+                    name:Symbol::from("")
+                },exprs,byte_pos.start()))
+            },
+            Literal::ObjectLiteral(record_map) => {
+                let record_type = self.type_cache.record(vec![], vec![]);
+                todo!()
+            },
+            _ => todo!()
+        }
+    }
+
+    
+    fn translate_type(&'a self,typ:&Type<()>) -> gt::ArcType {
+        match &typ {
+            Type::TypeConstructor(_,proper) => {
+               match &proper.0 {
+                   Some(qual_str) if qual_str == "Prim" => {
+                       self.translate_prim_type( types::proper_name_as_str(&proper.1)) 
+                   },
+                   _ => self.type_cache.hole()
+               }
+            },
+            Type::TypeApp(_,ta,tb) => {
+                let ca = self.translate_type(ta);
+                let cb = self.translate_type(tb);
+                let app = gt::Type::app(ca, collect![cb]);
+                app
+            },
+            _ => self.type_cache.hole()
+        }
+    }
+
+    fn translate_prim_type(&'a self,type_name:&str) -> gt::ArcType {
+        match type_name {
+            "Int" => self.type_cache.int(),
+            "Number" => self.type_cache.float(),
+            "String" => self.type_cache.string(),
+            "Char" => self.type_cache.char(),
+            "Array" => self.type_cache.array_builtin(),
+            _ => self.type_cache.hole()
+        }
+    }
 }
 
+#[derive(Debug)]
 pub enum  TranslateError {
     TranslateNotNanFloat
-}
-
-
-
-
-
-fn translate_expr<'a>(expr:&Expr<Ann>) -> Result<VMExpr<'a>,TranslateError>  {
-    match expr {
-        Expr::Literal(ann,lit) => {
-            let vm_lit = translate_literal(lit)?;
-            let byte_pos = source_span_to_byte_span(&ann.0);
-            Ok(VMExpr::Const(vm_lit,byte_pos)) 
-        },
-        _ => todo!()
-    }
-}
-
-fn translate_literal<'a,T>(lit:&Literal<Box<T>>) -> Result<VMLiteral,TranslateError> {
-    match lit {
-        Literal::NumericLiteral(rnum) => {
-            match rnum {
-                Ok(inum) => Ok(VMLiteral::Int(*inum as i64)),
-                Err(fnum) => {
-                    let val =  ordered_float::NotNan::new(*fnum).map_err(|_| TranslateError::TranslateNotNanFloat)?;
-                    Ok(VMLiteral::Float(val))
-                },
-            }
-        }
-        Literal::StringLiteral(str) => Ok(VMLiteral::String(Box::from(&str[..]))),
-        Literal::CharLiteral(chr) => Ok(VMLiteral::Char(*chr)),
-        _ => todo!()
-    }
 }
 
 
@@ -119,6 +167,8 @@ fn test_trans() {
    let first_purs_string = std::fs::read_to_string("tests/output/Main/corefn.json").unwrap();
    let module:Module = serde_json::from_str(first_purs_string.as_str()).unwrap();
 
+   dbg!(&module);
+
    let thread = gluon::new_vm();
    let type_cache = thread.global_env().type_cache();
 
@@ -128,8 +178,8 @@ fn test_trans() {
    
    let mut symbols = Symbols::new();
    let mut sym_modules = SymbolModule::new("".into(), &mut symbols);
-   let globals = TypeInfos::new();
-   let vm_state = GlobalVmState::new();
+   let globals = &thread.global_env().get_globals().type_infos;
+   let vm_state = thread.global_env();
    let source = FileMap::new("".to_string().into(), "".to_string());
    let mut compiler = Compiler::new(&globals,&vm_state,sym_modules,&source,"test".into(),false);
    
@@ -150,5 +200,5 @@ fn test_trans() {
 
    use gluon::compiler_pipeline::{Executable};
    let val = futures::executor::block_on( com.run_expr(&mut thread.clone().module_compiler(&mut thread.get_database()),thread.clone(),"","",()));
-  
+   dbg!(val.unwrap().value);
 }

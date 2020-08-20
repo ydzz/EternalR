@@ -203,6 +203,7 @@ name = "compiler"
 version = "0.1.0"
 dependencies = [
  "ast",
+ "collect-mac",
  "env_logger",
  "futures 0.3.5",
  "gluon",
@@ -212,6 +213,7 @@ dependencies = [
  "log",
  "ordered-float",
  "serde_json",
+ "typed-arena",
 ]
 
 [[package]]

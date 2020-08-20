@@ -75,6 +75,15 @@ pub enum ProperName {
     Namespace(String)
 }
 
+pub fn proper_name_as_str(proper_name:&ProperName) -> &str {
+  match proper_name {
+    ProperName::TypeName(s) => s.as_str(),
+    ProperName::ConstructorName(s) => s.as_str(),
+    ProperName::ClassName(s) => s.as_str(),
+    ProperName::Namespace(s) => s.as_str()
+  }
+}
+
 #[derive(PartialEq,Debug)]
 pub enum OpName {
     ValueOpName(String),
@@ -166,7 +175,6 @@ pub struct Constraint<A> {
   pub args:Vec<Type<A>>,
   pub data:Option<ConstraintData>
 }
-
 
 
 pub fn prim_row() -> Qualified<ProperName> {
