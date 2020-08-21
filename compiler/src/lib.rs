@@ -17,6 +17,10 @@ fn test_first() {
       let arr = [1,2,3]
       in arr
    "#;
+   
+   let thread = gluon::new_vm();
+   
+   /*
    gluon::base::mk_ast_arena!(arena);
    let mut symbols = Symbols::new();
    let mut sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -38,7 +42,7 @@ fn test_first() {
    let module = compiler.compile_expr(&core_expr).unwrap();
    dbg!(module);
 
-
+*/
    
    /*
    gluon::base::mk_ast_arena!(arena);

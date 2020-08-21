@@ -1,8 +1,17 @@
 module Main where
 
+constRecord :: { varA :: Int, varB :: String,varC::{a::Int } }
+constRecord = {varA : 1,varB : "a",varC: {a: 2 } }
+{-
+constInt :: Int
+constInt = 12450
+
+constArray :: Array Int
+constArray = [1,2,3]
+
 constRecord :: { varA :: Int, varB :: String}
 constRecord = {varA : 1,varB : "a" }
-{-
+
 constArray :: Array Int
 constArray = [1,2,3]
 

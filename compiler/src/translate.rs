@@ -63,7 +63,7 @@ impl<'a> Translate<'a> {
     pub fn translate_expr(&'a self,expr:&Expr<Ann>) -> Result<(VMExpr<'a>,gt::ArcType),TranslateError>  {
         match expr {
             Expr::Literal(ann,lit) => {
-                let typ = self.translate_type(ann.2.as_ref().unwrap());
+                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let expr = self.translate_literal(lit,ann,&typ)?;
                 Ok((expr,typ))
             },
@@ -101,41 +101,65 @@ impl<'a> Translate<'a> {
     }
 
     
-    fn translate_type(&'a self,typ:&Type<()>) -> gt::ArcType {
+    fn translate_type<'b>(&'a self,typ:&'b Type<()>) -> Result<gt::ArcType,&'b str>  {
         match &typ {
             Type::TypeConstructor(_,proper) => {
                match &proper.0 {
                    Some(qual_str) if qual_str == "Prim" => {
-                       self.translate_prim_type( types::proper_name_as_str(&proper.1)) 
+                        self.translate_prim_type( types::proper_name_as_str(&proper.1)) 
                    },
-                   _ => self.type_cache.hole()
+                   _ => Ok(self.type_cache.hole())
                }
             },
             Type::TypeApp(_,ta,tb) => {
                 let ca = self.translate_type(ta);
-                let cb = self.translate_type(tb);
-                let app = gt::Type::app(ca, collect![cb]);
-                app
-            },
-            _ => self.type_cache.hole()
+                match ca {
+                    Ok(ta) => {
+                        let cb = self.translate_type(tb).unwrap();
+                        let app:gt::ArcType = gt::Type::app(ta, collect![cb]);
+                        return Ok(app);
+                    },
+                    Err("Record") => {
+                        self.collect_record(tb);
+                        todo!()
+                    },
+                    _ => todo!()
+                }               
+            }
+            _ => Ok(self.type_cache.hole())
         }
     }
 
-    fn translate_prim_type(&'a self,type_name:&str) -> gt::ArcType {
+    fn collect_record(&'a self,typ:&Type<()>) {
+        loop { 
+            match typ {
+                Type::RCons(_,_,_,_) => {
+                    todo!()
+                },
+                _ => { break; }
+            }
+        }
+    }
+
+    fn translate_prim_type<'b>(&'a self,type_name:&'b str) -> Result<gt::ArcType,&'b str> {
         match type_name {
-            "Int" => self.type_cache.int(),
-            "Number" => self.type_cache.float(),
-            "String" => self.type_cache.string(),
-            "Char" => self.type_cache.char(),
-            "Array" => self.type_cache.array_builtin(),
-            _ => self.type_cache.hole()
+            "Int" => Ok(self.type_cache.int()),
+            "Number" => Ok(self.type_cache.float()),
+            "String" => Ok(self.type_cache.string()),
+            "Char" => Ok(self.type_cache.char()),
+            "Array" => Ok(self.type_cache.array_builtin()),
+            "Record" => {
+                Err(type_name)
+            },
+            _ => Ok(self.type_cache.hole())
         }
     }
 }
 
 #[derive(Debug)]
 pub enum  TranslateError {
-    TranslateNotNanFloat
+    TranslateNotNanFloat,
+    TypeError
 }
 
 
@@ -181,11 +205,12 @@ fn test_trans() {
    let globals = &thread.global_env().get_globals().type_infos;
    let vm_state = thread.global_env();
    let source = FileMap::new("".to_string().into(), "".to_string());
-   let mut compiler = Compiler::new(&globals,&vm_state,sym_modules,&source,"test".into(),false);
+   let mut compiler = Compiler::new(&globals,&vm_state,sym_modules,&source,"test".into(),true);
+   
    
    dbg!(&core_expr);
-   let module:gluon_vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
-   dbg!(&module);
+   let compiled_module:gluon_vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
+   dbg!(&compiled_module);
    let metadata = std::sync::Arc::new(gluon::base::metadata::Metadata::default());
    let com:CompileValue<()> = CompileValue {
        expr:(),
@@ -195,7 +220,7 @@ fn test_trans() {
     },
        typ:type_cache.hole(),
        metadata,
-       module
+       module:compiled_module
    };
 
    use gluon::compiler_pipeline::{Executable};

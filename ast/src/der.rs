@@ -562,7 +562,7 @@ fn ann_type_from_value(val:&serde_json::Value) -> Option<Type<()>> {
             let arr = contents?.as_array()?;
             let label = arr[0].as_str()?.to_string();
             let typ = ann_type_from_value(&arr[1])?;
-            let typ2 = ann_type_from_value(&arr[1])?;
+            let typ2 = ann_type_from_value(&arr[2])?;
             Some(Type::RCons((),label,Box::new(typ),Box::new(typ2)))
          },
          "KindedType" => {
@@ -686,6 +686,7 @@ fn test_json() {
  
     let json = std::fs::read_to_string("tests/corefn2.json").unwrap();
     let pos:Module = serde_json::from_str(json.as_str()).unwrap();
+    dbg!(&pos);
     let debug_str = format!("{:?}",pos);
     std::fs::write("a.out", debug_str);
     
