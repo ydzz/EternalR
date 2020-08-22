@@ -92,9 +92,17 @@ impl<'a> Translate<'a> {
                     name:Symbol::from("")
                 },exprs,byte_pos.start()))
             },
-            Literal::ObjectLiteral(record_map) => {
-                let record_type = self.type_cache.record(vec![], vec![]);
-                todo!()
+            Literal::ObjectLiteral(record_list) => {
+                let vm_exprs = record_list.iter().map(|(_,v)| {
+                    let (vm_expr,_) = self.translate_expr(v).unwrap();
+                    vm_expr
+                });
+                let alloc_expr = self.alloc.arena.alloc_fixed(vm_exprs);
+                let data = VMExpr::Data(gast::TypedIdent {
+                    typ: typ.clone(),
+                    name:self.dummy_symbol.name.clone()
+                },alloc_expr,byte_pos.start());
+                Ok(data)
             },
             _ => todo!()
         }
@@ -104,55 +112,74 @@ impl<'a> Translate<'a> {
     fn translate_type<'b>(&'a self,typ:&'b Type<()>) -> Result<gt::ArcType,&'b str>  {
         match &typ {
             Type::TypeConstructor(_,proper) => {
+               let type_name = types::proper_name_as_str(&proper.1);
                match &proper.0 {
                    Some(qual_str) if qual_str == "Prim" => {
-                        self.translate_prim_type( types::proper_name_as_str(&proper.1)) 
+                       match type_name {
+                         "Int" => Ok(self.type_cache.int()),
+                         "Number" => Ok(self.type_cache.float()),
+                         "String" => Ok(self.type_cache.string()),
+                         "Char" => Ok(self.type_cache.char()),
+                         "Array" => Ok(self.type_cache.array_builtin()),
+                         "Record" => Err(type_name),
+                         _ => {
+                             let kind = gt::KindedIdent::new(Symbol::from(type_name));
+                             Ok(gt::Type::ident(kind))
+                         }
+                       }
                    },
-                   _ => Ok(self.type_cache.hole())
+                   _ => {
+                    let kind = gt::KindedIdent::new(Symbol::from(type_name));
+                    Ok(gt::Type::ident(kind))
+                }
                }
             },
             Type::TypeApp(_,ta,tb) => {
                 let ca = self.translate_type(ta);
+                let tail_vecs = self.collect_app_type(tb);
                 match ca {
-                    Ok(ta) => {
-                        let cb = self.translate_type(tb).unwrap();
-                        let app:gt::ArcType = gt::Type::app(ta, collect![cb]);
-                        return Ok(app);
-                    },
-                    Err("Record") => {
-                        self.collect_record(tb);
-                        todo!()
-                    },
+                
+                    Err(str) if str  == "Record" => Ok(tail_vecs[0].clone()),
+                    Ok(ta)  =>  Ok(gt::Type::app(ta, collect!(self.translate_type(tb)?))),
                     _ => todo!()
-                }               
-            }
-            _ => Ok(self.type_cache.hole())
-        }
-    }
-
-    fn collect_record(&'a self,typ:&Type<()>) {
-        loop { 
-            match typ {
-                Type::RCons(_,_,_,_) => {
-                    todo!()
-                },
-                _ => { break; }
-            }
-        }
-    }
-
-    fn translate_prim_type<'b>(&'a self,type_name:&'b str) -> Result<gt::ArcType,&'b str> {
-        match type_name {
-            "Int" => Ok(self.type_cache.int()),
-            "Number" => Ok(self.type_cache.float()),
-            "String" => Ok(self.type_cache.string()),
-            "Char" => Ok(self.type_cache.char()),
-            "Array" => Ok(self.type_cache.array_builtin()),
-            "Record" => {
-                Err(type_name)
+                }             
             },
+            Type::RCons(_,_,_,_) => {
+                let mut cur_type:&Type<()> = typ;
+                let mut fields = vec![];
+                loop { 
+                    match cur_type {
+                        Type::RCons(_,label,head_,tail_) => {
+                            let field_type = self.translate_type(head_).unwrap();
+                            let field = gt::Field::new(Symbol::from(label.as_str()), field_type);
+                            fields.push(field);
+                            cur_type = tail_;
+                        }
+                        _ => break
+                    }
+                }
+                Ok(self.type_cache.record(vec![], fields))
+            }
             _ => Ok(self.type_cache.hole())
         }
+    }
+
+    fn collect_app_type(&'a self,typ:&Type<()>) -> Vec<gt::ArcType> {
+        let mut cur_type = typ;
+        let mut ret_vec:Vec<gt::ArcType> = vec![];
+        loop { 
+            match cur_type {
+                Type::TypeApp(_,head,tail) => {
+                    ret_vec.push(self.translate_type(head).unwrap());
+                    cur_type = tail;
+                },
+                _ => {  
+                    ret_vec.push(self.translate_type(cur_type).unwrap());
+                    break;
+                }
+            }
+        }
+        ret_vec
     }
 }
 
@@ -201,7 +228,7 @@ fn test_trans() {
    let core_expr = vm_expr.ok().unwrap();
    
    let mut symbols = Symbols::new();
-   let mut sym_modules = SymbolModule::new("".into(), &mut symbols);
+   let sym_modules = SymbolModule::new("".into(), &mut symbols);
    let globals = &thread.global_env().get_globals().type_infos;
    let vm_state = thread.global_env();
    let source = FileMap::new("".to_string().into(), "".to_string());

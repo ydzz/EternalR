@@ -1,5 +1,6 @@
 use serde::{Deserialize};
 use std::collections::HashMap;
+
 #[derive(Deserialize,Debug)]
 pub struct SourcePos {
    pub line:i32,
@@ -98,14 +99,14 @@ pub enum Literal<A> {
   CharLiteral(char),
   BooleanLiteral(bool),
   ArrayLiteral(Vec<A>),
-  ObjectLiteral(HashMap<String,A>)
+  ObjectLiteral(Vec<(String,A)>)
 }
 #[derive(Debug)]
 pub enum Expr<A> {
   Literal(A,Literal<Box<Expr<A>>>),
   Constructor(A,ProperName,ProperName,Vec<Ident>),
   Accessor(A,String,Box<Expr<A>>),
-  ObjectUpdate(A,Box<Expr<A>>,HashMap<String,Box<Expr<A>>>),
+  ObjectUpdate(A,Box<Expr<A>>,Vec<(String,Box<Expr<A>>)>),
   Abs(A,Ident,Box<Expr<A>>),
   App(A,Box<Expr<A>>,Box<Expr<A>>),
   Var(A,Qualified<Ident>),

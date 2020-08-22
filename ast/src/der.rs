@@ -310,13 +310,13 @@ fn literal_from_value<T>(f:impl Fn(&serde_json::Value) -> T,val:&serde_json::Val
     }
 }
 
-fn object_from_value<T>(f:impl Fn(&serde_json::Value) -> T,val:&serde_json::Value) -> Option<std::collections::HashMap<String,T>>  {
+fn object_from_value<T>(f:impl Fn(&serde_json::Value) -> T,val:&serde_json::Value) -> Option<Vec<(String,T)>>  {
     let arr = val.as_array()?;
-    let mut object = std::collections::HashMap::new();
+    let mut object = vec![];
     for item in arr {
         let item_arr = item.as_array()?;
         let str_key = item_arr[0].as_str()?;
-        object.insert(str_key.to_string(), f(&item_arr[1]));
+        object.push((str_key.to_string(), f(&item_arr[1])));
     }
     Some(object)
 }
