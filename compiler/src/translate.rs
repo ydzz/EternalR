@@ -1,12 +1,19 @@
 use ast::types::{self,Bind,Ann,Expr,Literal,Module,Type};
-use gluon_vm::core::{Expr as VMExpr,Literal as VMLiteral,self as vmcore,Named,Allocator};
-use gluon_base::{ast as gast,pos::{BytePos,Span,ByteIndex},types as gt,symbol::Symbol};
+use gluon::vm::core::{Expr as VMExpr,Literal as VMLiteral,self as vmcore,Named,Allocator};
+use gluon::base::{ast as gast,pos::{BytePos,Span,ByteIndex},types as gt,symbol::Symbol};
 use std::sync::Arc;
 use crate::utils::*;
 pub struct Translate<'a> {
     type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>,
     alloc:Arc<Allocator<'a>>,
     dummy_symbol:gast::TypedIdent
+}
+
+#[derive(Debug,Clone)]
+enum TransferType {
+    PartialTypeConstructor(String),
+    Function,
+    FunctionCtor(gt::ArcType)
 }
 
 impl<'a> Translate<'a> {
@@ -59,7 +66,6 @@ impl<'a> Translate<'a> {
         }
     }
 
-
     pub fn translate_expr(&'a self,expr:&Expr<Ann>) -> Result<(VMExpr<'a>,gt::ArcType),TranslateError>  {
         match expr {
             Expr::Literal(ann,lit) => {
@@ -67,6 +73,11 @@ impl<'a> Translate<'a> {
                 let expr = self.translate_literal(lit,ann,&typ)?;
                 Ok((expr,typ))
             },
+            Expr::Abs(ann,_ident,_expr) => {
+                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
+                dbg!(typ);
+                todo!()
+            }
             _ => todo!()
         }
     }
@@ -104,12 +115,11 @@ impl<'a> Translate<'a> {
                 },alloc_expr,byte_pos.start());
                 Ok(data)
             },
-            _ => todo!()
+            Literal::BooleanLiteral(_) => unimplemented!()
         }
     }
 
-    
-    fn translate_type<'b>(&'a self,typ:&'b Type<()>) -> Result<gt::ArcType,&'b str>  {
+    fn translate_type<'b>(&'a self,typ:&'b Type<()>) -> Result<gt::ArcType,TransferType>  {
         match &typ {
             Type::TypeConstructor(_,proper) => {
                let type_name = types::proper_name_as_str(&proper.1);
@@ -119,29 +129,46 @@ impl<'a> Translate<'a> {
                          "Int" => Ok(self.type_cache.int()),
                          "Number" => Ok(self.type_cache.float()),
                          "String" => Ok(self.type_cache.string()),
-                         "Char" => Ok(self.type_cache.char()),
-                         "Array" => Ok(self.type_cache.array_builtin()),
-                         "Record" => Err(type_name),
-                         _ => {
-                             let kind = gt::KindedIdent::new(Symbol::from(type_name));
-                             Ok(gt::Type::ident(kind))
-                         }
+                         "Char"   => Ok(self.type_cache.char()),
+                         "Array"  => Ok(self.type_cache.array_builtin()),
+                         "Record" => Err(TransferType::PartialTypeConstructor(type_name.to_string())),
+                         "Function" => Err(TransferType::Function),
+                         _ => Ok(gt::Type::ident(gt::KindedIdent::new(Symbol::from(type_name))))
                        }
                    },
-                   _ => {
-                    let kind = gt::KindedIdent::new(Symbol::from(type_name));
-                    Ok(gt::Type::ident(kind))
-                }
+                   _ => Ok(gt::Type::ident(gt::KindedIdent::new(Symbol::from(type_name))))
                }
             },
             Type::TypeApp(_,ta,tb) => {
-                let ca = self.translate_type(ta);
+                let head = self.translate_type(ta);
                 let tail_vecs = self.collect_app_type(tb);
-                match ca {
-                
-                    Err(str) if str  == "Record" => Ok(tail_vecs[0].clone()),
+                match head {
+                    Err(ref trans_type) => {
+                        match trans_type {
+                            TransferType::PartialTypeConstructor(_) => {
+                                //if *str == "Record" {
+                                   return Ok(tail_vecs[0].as_ref().unwrap().clone());
+                                //}
+                            },
+                            TransferType::Function => {
+                                let arc_type = tail_vecs[0].as_ref().unwrap().clone();
+                                Err(TransferType::FunctionCtor(arc_type))
+                            },
+                            TransferType::FunctionCtor(arc_type) => {
+                                let mut flat_types:Vec<_> = tail_vecs.iter().map(|v| {
+                                    match v {
+                                        Err(TransferType::FunctionCtor(at)) => at,
+                                        Ok(t) => t,
+                                        _ => panic!("translate fuction type error")
+                                    }
+                                }).collect();
+                                flat_types.insert(0, arc_type);
+                                let tail = flat_types.pop().unwrap();
+                                Ok(self.type_cache.function( flat_types.iter().map(|v|(*v).clone()),tail.clone()))
+                            }
+                        }
+                    },
                     Ok(ta)  =>  Ok(gt::Type::app(ta, collect!(self.translate_type(tb)?))),
-                    _ => todo!()
                 }             
             },
             Type::RCons(_,_,_,_) => {
@@ -164,17 +191,18 @@ impl<'a> Translate<'a> {
         }
     }
 
-    fn collect_app_type(&'a self,typ:&Type<()>) -> Vec<gt::ArcType> {
+    
+    fn collect_app_type<'b>(&'a self,typ:&Type<()>) -> Vec<Result<gt::ArcType,TransferType>>  {
         let mut cur_type = typ;
-        let mut ret_vec:Vec<gt::ArcType> = vec![];
+        let mut ret_vec = vec![];
         loop { 
             match cur_type {
                 Type::TypeApp(_,head,tail) => {
-                    ret_vec.push(self.translate_type(head).unwrap());
+                    ret_vec.push(self.translate_type(head));
                     cur_type = tail;
                 },
                 _ => {  
-                    ret_vec.push(self.translate_type(cur_type).unwrap());
+                    ret_vec.push(self.translate_type(cur_type));
                     break;
                 }
             }
@@ -210,15 +238,14 @@ fn source_pos_to_byte_pos(source_pos:&types::SourcePos) -> BytePos  {
 fn test_trans() {
    use gluon::{ThreadExt};
    use ast::types::{Module};
-   use gluon::compiler_pipeline::{ExecuteValue,CompileValue};
-   use gluon_vm::compiler::{Compiler};
-   use gluon_base::symbol::*;
-   use gluon_base::source::{FileMap};
-   use gluon_vm::{types::TypeInfos,vm::GlobalVmState};
+   use gluon::compiler_pipeline::{CompileValue};
+   use gluon::vm::compiler::{Compiler};
+   use gluon::base::symbol::*;
+   use gluon::base::source::{FileMap};
    let first_purs_string = std::fs::read_to_string("tests/output/Main/corefn.json").unwrap();
    let module:Module = serde_json::from_str(first_purs_string.as_str()).unwrap();
 
-   dbg!(&module);
+   //dbg!(&module);
 
    let thread = gluon::new_vm();
    let type_cache = thread.global_env().type_cache();
@@ -230,19 +257,20 @@ fn test_trans() {
    let mut symbols = Symbols::new();
    let sym_modules = SymbolModule::new("".into(), &mut symbols);
    let globals = &thread.global_env().get_globals().type_infos;
+   thread.get_database_mut().implicit_prelude(false);
    let vm_state = thread.global_env();
    let source = FileMap::new("".to_string().into(), "".to_string());
    let mut compiler = Compiler::new(&globals,&vm_state,sym_modules,&source,"test".into(),true);
    
    
-   dbg!(&core_expr);
-   let compiled_module:gluon_vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
-   dbg!(&compiled_module);
+   //dbg!(&core_expr);
+   let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
+   //dbg!(&compiled_module);
    let metadata = std::sync::Arc::new(gluon::base::metadata::Metadata::default());
    let com:CompileValue<()> = CompileValue {
        expr:(),
-       core_expr:gluon_vm::core::interpreter::Global {
-        value: gluon_vm::core::freeze_expr( &trans.alloc, core_expr),
+       core_expr:gluon::vm::core::interpreter::Global {
+        value: gluon::vm::core::freeze_expr( &trans.alloc, core_expr),
         info: Default::default(),
     },
        typ:type_cache.hole(),

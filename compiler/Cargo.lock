@@ -207,9 +207,6 @@ dependencies = [
  "env_logger",
  "futures 0.3.5",
  "gluon",
- "gluon_base",
- "gluon_parser",
- "gluon_vm",
  "log",
  "ordered-float",
  "serde_json",
@@ -454,8 +451,6 @@ dependencies = [
 [[package]]
 name = "gluon"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95284d1aa2a141815ea329ea09cd2ed85161653114e5a703350b01b9466bec6b"
 dependencies = [
  "async-trait",
  "codespan",
@@ -514,8 +509,6 @@ dependencies = [
 [[package]]
 name = "gluon_base"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a34328ad20295a4ff26a6110a38e28822a4409e7ccd4d5d688c18c49498c8e0"
 dependencies = [
  "bitflags",
  "codespan",
@@ -538,8 +531,6 @@ dependencies = [
 [[package]]
 name = "gluon_check"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92b1d605ca702622cc7f58cd4d667fd235387b5babe6805f65cc281529fddb6f"
 dependencies = [
  "codespan",
  "codespan-reporting",
@@ -559,8 +550,6 @@ dependencies = [
 [[package]]
 name = "gluon_codegen"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c11dc4e79138a18df511fd44729a35c57af9d739ab0400de87e2fa30aaa37c1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -570,8 +559,6 @@ dependencies = [
 [[package]]
 name = "gluon_format"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6eb47f0eb6347499236e4c0972dd3a02e4b992744170077a0f76af2312caab3f"
 dependencies = [
  "codespan",
  "gluon_base",
@@ -583,8 +570,6 @@ dependencies = [
 [[package]]
 name = "gluon_parser"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdb6d717f6f6ff51f36fd05f2b6cdf550c9f10250bfaeaf23a547fa23a04daae"
 dependencies = [
  "codespan",
  "codespan-reporting",
@@ -601,8 +586,6 @@ dependencies = [
 [[package]]
 name = "gluon_vm"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f464334591c0714063d4610304f3af58b1a8133d22977c68e9bf6216d7e84712"
 dependencies = [
  "async-trait",
  "bitflags",

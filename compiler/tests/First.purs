@@ -1,8 +1,12 @@
 module Main where
 
+constFunc::Int -> Int -> Int
+constFunc a b = b
+
+{-
 constRecord :: { varA :: Int, varB :: String,varC::{a::Int } }
 constRecord = {varA : 1,varB : "a",varC: {a: 2 } }
-{-
+
 constInt :: Int
 constInt = 12450
 
