@@ -53,6 +53,15 @@ pub enum Ident {
   UnusedIdent
 }
 
+impl Ident {
+  pub fn as_str(&self) -> Option<&str>  {
+    match self {
+      Ident::Ident(s) => Some(s.as_str()),
+      _ => None
+    }
+  }
+}
+
 #[derive(Debug)]
 pub enum Meta {
   IsConstructor(ConstructorType,Vec<Ident>),

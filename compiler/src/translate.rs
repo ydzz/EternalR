@@ -1,12 +1,14 @@
-use ast::types::{self,Bind,Ann,Expr,Literal,Module,Type};
+use ast::types::{self,Bind,Ann,Expr,Literal,Module,Type,Ident};
 use gluon::vm::core::{Expr as VMExpr,Literal as VMLiteral,self as vmcore,Named,Allocator};
-use gluon::base::{ast as gast,pos::{BytePos,Span,ByteIndex},types as gt,symbol::Symbol};
+use gluon::base::{ast as gast,pos::{BytePos,Span,ByteIndex},types as gt,symbol::{Symbol,Symbols}};
 use std::sync::Arc;
+use std::cell::RefCell;
 use crate::utils::*;
 pub struct Translate<'a> {
     type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>,
     alloc:Arc<Allocator<'a>>,
-    dummy_symbol:gast::TypedIdent
+    dummy_symbol:gast::TypedIdent,
+    symbols: RefCell<Symbols>
 }
 
 #[derive(Debug,Clone)]
@@ -14,6 +16,48 @@ enum TransferType {
     PartialTypeConstructor(String),
     Function,
     FunctionCtor(gt::ArcType)
+}
+
+struct TTypeInfo {
+    pub typ:gt::ArcType,
+    pub args:Vec<gt::ArcType>
+}
+
+impl TTypeInfo {
+    pub fn new(t:gt::ArcType) -> Self {
+        TTypeInfo { 
+            typ:t,args:vec![] 
+        }
+    }
+
+    pub fn new_func(t:gt::ArcType,args:Vec<gt::ArcType>) -> Self {
+        TTypeInfo {
+            typ:t,
+            args
+        }
+    }
+}
+
+pub struct TExprInfo<'a> {
+    pub typ:gt::ArcType,
+    pub expr:Option<VMExpr<'a>>,
+    pub closure:Vec<vmcore::Closure<'a>>
+}
+
+impl<'a> TExprInfo<'a> {
+    pub fn new(expr:VMExpr<'a>,typ:gt::ArcType) -> Self {
+        TExprInfo { expr:Some(expr),typ,closure:vec![] }
+    }
+    pub fn new_closure(typ:gt::ArcType,closure:Vec<vmcore::Closure<'a>>) -> Self {
+        TExprInfo { expr:None, typ,closure}
+    }
+
+    pub fn expr(&self) -> &VMExpr<'a> {
+        self.expr.as_ref().unwrap()
+    }
+    pub fn take_expr(&mut self) -> VMExpr<'a> {
+        self.expr.take().unwrap()
+    }
 }
 
 impl<'a> Translate<'a> {
@@ -24,7 +68,8 @@ impl<'a> Translate<'a> {
             dummy_symbol: gast::TypedIdent {
                 typ:type_cache.hole(),
                 name:Symbol::from(""),
-            }
+            },
+            symbols:RefCell::new(Symbols::new())
         }
     }
 
@@ -43,19 +88,25 @@ impl<'a> Translate<'a> {
     pub fn translate_bind(&'a self,bind:&Bind<Ann>,pre_expr:&'a VMExpr<'a>) -> Result<VMExpr<'a>,TranslateError>  {
         match bind {
             Bind::NonRec(ann,id,expr) => {
-                let (expr,ty) = self.translate_expr(&expr)?;
-                let vm_expr:&'a VMExpr = self.alloc.arena.alloc(expr);
-                let span = source_span_to_byte_span(&ann.0);
                 let id_name = match id {
                     types::Ident::Ident(str) => str.to_owned(),
                     _ => "".to_string()
                 };
-                let name = gast::TypedIdent {
-                    name:Symbol::from(id_name),
-                    typ:ty
+                let mut expr_info:TExprInfo<'a> = self.translate_expr(&expr,id_name.as_str())?;
+                let span = source_span_to_byte_span(&ann.0);
+               
+                let mut name = gast::TypedIdent {
+                    name:self.symbols.borrow_mut().simple_symbol(id_name),
+                    typ:expr_info.typ.clone()
                 };
-                let named = Named::Expr(&vm_expr);
-                let let_binding = vmcore::LetBinding {
+                 let named = if expr_info.closure.len() == 0 {
+                    let expr = expr_info.take_expr();
+                    Named::Expr(self.alloc.arena.alloc(expr))
+                 } else {
+                    name = gast::TypedIdent::new(self.symbols.borrow_mut().simple_symbol("") );
+                   Named::Recursive(expr_info.closure)
+                 };
+                 let let_binding = vmcore::LetBinding {
                     name,
                     expr:named,
                     span_start:span.start(),
@@ -66,17 +117,53 @@ impl<'a> Translate<'a> {
         }
     }
 
-    pub fn translate_expr(&'a self,expr:&Expr<Ann>) -> Result<(VMExpr<'a>,gt::ArcType),TranslateError>  {
+    pub fn translate_expr(&'a self,expr:&Expr<Ann>,bind_name:&str) -> Result<TExprInfo,TranslateError>  {
         match expr {
             Expr::Literal(ann,lit) => {
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
-                let expr = self.translate_literal(lit,ann,&typ)?;
-                Ok((expr,typ))
+                let vmexpr = self.translate_literal(lit,ann,&typ.typ)?;
+                Ok(TExprInfo::new(vmexpr,typ.typ))
             },
-            Expr::Abs(ann,_ident,_expr) => {
+            Expr::Var(ann,qual) => {
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
-                dbg!(typ);
-                todo!()
+                let name = qual.1.as_str().unwrap();
+                let ident = VMExpr::Ident(gast::TypedIdent {
+                    typ:typ.typ.clone(),
+                    name:self.symbols.borrow_mut().simple_symbol(name)
+                },source_span_to_byte_span(&ann.0));
+                Ok(TExprInfo::new(ident ,typ.typ))
+            },
+            Expr::Abs(ann,ident,expr) => {
+                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
+                let arg_name = ident.as_str().unwrap();
+                let mut args:Vec<gast::TypedIdent> = vec![gast::TypedIdent::new2(self.symbols.borrow_mut().simple_symbol(arg_name), typ.args[0].clone())];
+               let mut arg_idx = 1;
+                let mut cur_expr:&Expr<Ann> = expr;
+                loop { 
+                    match cur_expr {
+                        Expr::Abs(_,ident,expr) => {
+                            let arg_name = ident.as_str().unwrap();  
+                            args.push(gast::TypedIdent::new2(self.symbols.borrow_mut().simple_symbol(arg_name), typ.args[arg_idx].clone()));
+                            cur_expr = expr;
+                            arg_idx = arg_idx + 1;
+                        },
+                        expr => {
+                            cur_expr = expr;
+                            break
+                        } 
+                    }
+                }
+                let typ2 = typ.typ.clone();
+                let mut expr_body = self.translate_expr(cur_expr,"")?;
+                let pos = source_span_to_byte_span(&ann.0);
+                let closure = vmcore::Closure {
+                    pos:pos.start(),
+                    name:gast::TypedIdent::new2(Symbol::from(bind_name), typ.typ),
+                    args,
+                    expr:self.alloc.arena.alloc(expr_body.take_expr()),  
+                };
+                let tinfo = TExprInfo::new_closure(typ2,vec![closure]);
+                Ok(tinfo)
             }
             _ => todo!()
         }
@@ -97,7 +184,7 @@ impl<'a> Translate<'a> {
             Literal::StringLiteral(str) => Ok(VMExpr::Const(VMLiteral::String(Box::from(&str[..])),byte_pos)),
             Literal::CharLiteral(chr) => Ok(VMExpr::Const(VMLiteral::Char(*chr),byte_pos)),
             Literal::ArrayLiteral(arr) => {
-                let exprs = self.alloc.arena.alloc_fixed(arr.iter().map(|v| self.translate_expr(v).unwrap().0));
+                let exprs = self.alloc.arena.alloc_fixed(arr.iter().map(|v| self.translate_expr(v,"").unwrap().take_expr()));
                 Ok(VMExpr::Data(gast::TypedIdent {
                     typ:typ.clone(),
                     name:Symbol::from("")
@@ -105,8 +192,8 @@ impl<'a> Translate<'a> {
             },
             Literal::ObjectLiteral(record_list) => {
                 let vm_exprs = record_list.iter().map(|(_,v)| {
-                    let (vm_expr,_) = self.translate_expr(v).unwrap();
-                    vm_expr
+                    let mut expr_info = self.translate_expr(v,"").unwrap();
+                    expr_info.take_expr()
                 });
                 let alloc_expr = self.alloc.arena.alloc_fixed(vm_exprs);
                 let data = VMExpr::Data(gast::TypedIdent {
@@ -119,24 +206,24 @@ impl<'a> Translate<'a> {
         }
     }
 
-    fn translate_type<'b>(&'a self,typ:&'b Type<()>) -> Result<gt::ArcType,TransferType>  {
+    fn translate_type<'b>(&'a self,typ:&'b Type<()>) -> Result<TTypeInfo,TransferType>  {
         match &typ {
             Type::TypeConstructor(_,proper) => {
                let type_name = types::proper_name_as_str(&proper.1);
                match &proper.0 {
                    Some(qual_str) if qual_str == "Prim" => {
                        match type_name {
-                         "Int" => Ok(self.type_cache.int()),
-                         "Number" => Ok(self.type_cache.float()),
-                         "String" => Ok(self.type_cache.string()),
-                         "Char"   => Ok(self.type_cache.char()),
-                         "Array"  => Ok(self.type_cache.array_builtin()),
+                         "Int" => Ok(TTypeInfo::new(self.type_cache.int())),
+                         "Number" => Ok(TTypeInfo::new(self.type_cache.float())),
+                         "String" => Ok(TTypeInfo::new(self.type_cache.string())),
+                         "Char"   => Ok(TTypeInfo::new(self.type_cache.char())),
+                         "Array"  => Ok(TTypeInfo::new(self.type_cache.array_builtin())),
                          "Record" => Err(TransferType::PartialTypeConstructor(type_name.to_string())),
                          "Function" => Err(TransferType::Function),
-                         _ => Ok(gt::Type::ident(gt::KindedIdent::new(Symbol::from(type_name))))
+                         _ => Ok(TTypeInfo::new(gt::Type::ident(gt::KindedIdent::new(Symbol::from(type_name)))))
                        }
                    },
-                   _ => Ok(gt::Type::ident(gt::KindedIdent::new(Symbol::from(type_name))))
+                   _ => Ok(TTypeInfo::new(gt::Type::ident(gt::KindedIdent::new(Symbol::from(type_name)))))
                }
             },
             Type::TypeApp(_,ta,tb) => {
@@ -147,7 +234,7 @@ impl<'a> Translate<'a> {
                         match trans_type {
                             TransferType::PartialTypeConstructor(_) => {
                                 //if *str == "Record" {
-                                   return Ok(tail_vecs[0].as_ref().unwrap().clone());
+                                   return Ok(TTypeInfo::new(tail_vecs[0].as_ref().unwrap().clone()));
                                 //}
                             },
                             TransferType::Function => {
@@ -164,11 +251,16 @@ impl<'a> Translate<'a> {
                                 }).collect();
                                 flat_types.insert(0, arc_type);
                                 let tail = flat_types.pop().unwrap();
-                                Ok(self.type_cache.function( flat_types.iter().map(|v|(*v).clone()),tail.clone()))
+                                let ft = self.type_cache.function( flat_types.iter().map(|v|(*v).clone()),tail.clone());
+                                let clone_flat_types = flat_types.iter().map(|v|(*v).clone()).collect();
+                                Ok(TTypeInfo::new_func(ft, clone_flat_types) )
                             }
                         }
                     },
-                    Ok(ta)  =>  Ok(gt::Type::app(ta, collect!(self.translate_type(tb)?))),
+                    Ok(ta)  => {
+                        let typb = self.translate_type(tb)?;
+                        Ok(TTypeInfo::new(gt::Type::app(ta.typ, collect!(typb.typ))))
+                    } ,
                 }             
             },
             Type::RCons(_,_,_,_) => {
@@ -177,7 +269,7 @@ impl<'a> Translate<'a> {
                 loop { 
                     match cur_type {
                         Type::RCons(_,label,head_,tail_) => {
-                            let field_type = self.translate_type(head_).unwrap();
+                            let field_type = self.translate_type(head_).unwrap().typ;
                             let field = gt::Field::new(Symbol::from(label.as_str()), field_type);
                             fields.push(field);
                             cur_type = tail_;
@@ -185,24 +277,23 @@ impl<'a> Translate<'a> {
                         _ => break
                     }
                 }
-                Ok(self.type_cache.record(vec![], fields))
+                Ok(TTypeInfo::new(self.type_cache.record(vec![], fields)))
             }
-            _ => Ok(self.type_cache.hole())
+            _ => Ok(TTypeInfo::new(self.type_cache.hole()))
         }
     }
 
-    
     fn collect_app_type<'b>(&'a self,typ:&Type<()>) -> Vec<Result<gt::ArcType,TransferType>>  {
         let mut cur_type = typ;
         let mut ret_vec = vec![];
         loop { 
             match cur_type {
                 Type::TypeApp(_,head,tail) => {
-                    ret_vec.push(self.translate_type(head));
+                    ret_vec.push(self.translate_type(head).map(|v|v.typ) );
                     cur_type = tail;
                 },
                 _ => {  
-                    ret_vec.push(self.translate_type(cur_type));
+                    ret_vec.push(self.translate_type(cur_type).map(|v|v.typ));
                     break;
                 }
             }
@@ -249,7 +340,7 @@ fn test_trans() {
 
    let thread = gluon::new_vm();
    let type_cache = thread.global_env().type_cache();
-
+   
    let trans =  Translate::new(type_cache);
    let vm_expr = trans.translate_module(&module);
    let core_expr = vm_expr.ok().unwrap();
@@ -263,9 +354,9 @@ fn test_trans() {
    let mut compiler = Compiler::new(&globals,&vm_state,sym_modules,&source,"test".into(),true);
    
    
-   //dbg!(&core_expr);
+   dbg!(&core_expr);
    let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
-   //dbg!(&compiled_module);
+   dbg!(&compiled_module);
    let metadata = std::sync::Arc::new(gluon::base::metadata::Metadata::default());
    let com:CompileValue<()> = CompileValue {
        expr:(),
