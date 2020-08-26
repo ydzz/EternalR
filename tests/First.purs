@@ -1,7 +1,9 @@
 module Main where
 
+foreign import log::Int -> Int -> Int
+
 constFunc::Int -> Int -> Int
-constFunc a b = b
+constFunc a b = log b a
 
 {-
 constRecord :: { varA :: Int, varB :: String,varC::{a::Int } }

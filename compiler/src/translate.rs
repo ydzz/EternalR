@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use crate::utils::*;
 pub struct Translate<'a> {
     type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>,
-    alloc:Arc<Allocator<'a>>,
+    pub alloc:Arc<Allocator<'a>>,
     dummy_symbol:gast::TypedIdent,
     symbols: RefCell<Symbols>
 }
@@ -165,6 +165,9 @@ impl<'a> Translate<'a> {
                 let tinfo = TExprInfo::new_closure(typ2,vec![closure]);
                 Ok(tinfo)
             }
+            Expr::App(ann,a,b) => {
+                todo!()
+            }
             _ => todo!()
         }
     }
@@ -322,54 +325,4 @@ fn source_pos_to_byte_pos(source_pos:&types::SourcePos) -> BytePos  {
     let low16 = ucol & & 0x0000ffff;
     let value = hight16 | low16;
     BytePos(value)
-}
-
-
-#[test]
-fn test_trans() {
-   use gluon::{ThreadExt};
-   use ast::types::{Module};
-   use gluon::compiler_pipeline::{CompileValue};
-   use gluon::vm::compiler::{Compiler};
-   use gluon::base::symbol::*;
-   use gluon::base::source::{FileMap};
-   let first_purs_string = std::fs::read_to_string("tests/output/Main/corefn.json").unwrap();
-   let module:Module = serde_json::from_str(first_purs_string.as_str()).unwrap();
-
-   //dbg!(&module);
-
-   let thread = gluon::new_vm();
-   let type_cache = thread.global_env().type_cache();
-   
-   let trans =  Translate::new(type_cache);
-   let vm_expr = trans.translate_module(&module);
-   let core_expr = vm_expr.ok().unwrap();
-   
-   let mut symbols = Symbols::new();
-   let sym_modules = SymbolModule::new("".into(), &mut symbols);
-   let globals = &thread.global_env().get_globals().type_infos;
-   thread.get_database_mut().implicit_prelude(false);
-   let vm_state = thread.global_env();
-   let source = FileMap::new("".to_string().into(), "".to_string());
-   let mut compiler = Compiler::new(&globals,&vm_state,sym_modules,&source,"test".into(),true);
-   
-   
-   dbg!(&core_expr);
-   let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
-   dbg!(&compiled_module);
-   let metadata = std::sync::Arc::new(gluon::base::metadata::Metadata::default());
-   let com:CompileValue<()> = CompileValue {
-       expr:(),
-       core_expr:gluon::vm::core::interpreter::Global {
-        value: gluon::vm::core::freeze_expr( &trans.alloc, core_expr),
-        info: Default::default(),
-    },
-       typ:type_cache.hole(),
-       metadata,
-       module:compiled_module
-   };
-
-   use gluon::compiler_pipeline::{Executable};
-   let val = futures::executor::block_on( com.run_expr(&mut thread.clone().module_compiler(&mut thread.get_database()),thread.clone(),"","",()));
-   dbg!(val.unwrap().value);
 }
