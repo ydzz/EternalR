@@ -207,21 +207,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f168712e49987bd2f51cb855c4585999e12b1a0abdff60fea4b81b41f2010264"
 
 [[package]]
-name = "compiler"
-version = "0.1.0"
-dependencies = [
- "ast",
- "collect-mac",
- "env_logger",
- "futures 0.3.5",
- "gluon",
- "log",
- "ordered-float",
- "serde_json",
- "typed-arena",
-]
-
-[[package]]
 name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -308,6 +293,21 @@ dependencies = [
  "log",
  "regex",
  "termcolor",
+]
+
+[[package]]
+name = "er_compiler"
+version = "0.1.0"
+dependencies = [
+ "ast",
+ "collect-mac",
+ "env_logger",
+ "futures 0.3.5",
+ "gluon",
+ "log",
+ "ordered-float",
+ "serde_json",
+ "typed-arena",
 ]
 
 [[package]]

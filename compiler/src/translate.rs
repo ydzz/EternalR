@@ -75,7 +75,7 @@ impl<'a> Translate<'a> {
 
     pub fn translate_module(&'a self,module:&Module) -> Result<&'a VMExpr<'a>,TranslateError> {
         let export_module = VMExpr::Const(VMLiteral::Int(114514),Span::new(ByteIndex(0), ByteIndex(0)));
-        
+        self.translate_foreign(module);
         
         let mut pre_expr = self.alloc.arena.alloc(export_module);
         for bind in module.decls.iter().rev() {
@@ -83,6 +83,10 @@ impl<'a> Translate<'a> {
             pre_expr = self.alloc.arena.alloc(expr);
         }
         Ok(pre_expr)
+    }
+
+    fn translate_foreign(&'a self,module:&Module) {
+       
     }
 
     pub fn translate_bind(&'a self,bind:&Bind<Ann>,pre_expr:&'a VMExpr<'a>) -> Result<VMExpr<'a>,TranslateError>  {
@@ -166,7 +170,13 @@ impl<'a> Translate<'a> {
                 Ok(tinfo)
             }
             Expr::App(ann,a,b) => {
-                todo!()
+                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
+                let mut expr_a = self.translate_expr(a, "")?;
+                let mut expr_b = self.translate_expr(b, "")?;
+               
+                let ea = self.alloc.arena.alloc(expr_a.take_expr());
+                let eb:&'a [VMExpr<'a>] = self.alloc.arena.alloc_fixed(std::iter::once(expr_b.take_expr()));
+                Ok(TExprInfo::new(VMExpr::Call(ea,eb), typ.typ))
             }
             _ => todo!()
         }

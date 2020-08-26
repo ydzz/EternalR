@@ -6,9 +6,6 @@ edition = "2018"
 
 
 [dependencies]
-#gluon_vm = "0.17.1"#
-#gluon_parser = "0.17.1"
-#gluon_base = "0.17.1"
 gluon = {path = "../../gluon", version = "0.17.1",features = ["serialization"]}
 ast = {path = "../ast"}
 serde_json = "1.0.57"

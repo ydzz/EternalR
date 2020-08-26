@@ -66,30 +66,27 @@ fn test_run() {
     er.run_purs_cf(first_purs_string.as_str());
 }
 
-fn log_message(x: i32)  {
-    println!("log message {}",x);
-    
-}
 
-fn load_factorial(vm: &Thread) -> vm::Result<vm::ExternModule> {
-    vm::ExternModule::new(vm, primitive!(1, log_message))
-}
 
 #[test]
 fn test_gluon() {
-   
-    
     let vm = new_vm();
-
     let script = r#"
         let log_message = import! log_message
         log_message 2
-        1
     "#;
     add_extern_module(&vm, "log_message", load_factorial);
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
     let val = vm.run_expr::<i32>("Fuck", script).unwrap();
     dbg!(val.0);
-  
+}
+
+fn log_message(x: i32) -> i32 {
+    println!("log message {}",x);
+    x   
+}
+
+fn load_factorial(vm: &Thread) -> vm::Result<vm::ExternModule> {
+    vm::ExternModule::new(vm, primitive!(1, log_message))
 }

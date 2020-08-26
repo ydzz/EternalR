@@ -1,3 +1,3 @@
-exports.log = function() {
+exports.log_message = function() {
 
 }
