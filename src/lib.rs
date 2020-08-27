@@ -26,20 +26,19 @@ impl EternalR {
     }
 
     pub fn run_purs_cf(&mut self,source:&str) {
-        let global = futures::executor::block_on( async {
+        futures::executor::block_on( async {
             let mut db = self.thread.get_database();
             let mut compiler =  self.thread.module_compiler(&mut db);
             let sym = compiler.database.import("log_message".into()).await.unwrap();
-           
             sym
          });
          
         let ast_module:Module = serde_json::from_str(source).unwrap();
         let translate = Translate::new(self.thread.global_env().type_cache());
-        let vm_expr = translate.translate_module(&ast_module,global);
+        let vm_expr = translate.translate_module(&ast_module);
         let core_expr = vm_expr.ok().unwrap();
 
-        dbg!(core_expr);
+        //dbg!(core_expr);
 
         let mut symbols = Symbols::new();
         let sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -48,8 +47,8 @@ impl EternalR {
         let source = FileMap::new("".to_string().into(), source.to_string());
        
      
-        let mut db = self.thread.get_database();
-        let env = db.as_env();
+        let db = self.thread.get_database();
+        let env =  db.as_env();
         let mut compiler = Compiler::new(&env,&vm_state,sym_modules,&source,"test".into(),true);
         
         let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
@@ -72,6 +71,8 @@ impl EternalR {
                 &mut self.thread.clone().module_compiler(&mut self.thread.get_database()),self.thread.clone(),"","",()
             )
         );
+
+        
         dbg!(&val.unwrap().value);
     }
 }
@@ -84,7 +85,7 @@ use gluon::import::{add_extern_module};
 
 
 fn log_message(x: i32) -> i32 {
-    println!("log message {}",x);
+    eprintln!("log message {}",x);
     x   
 }
 
@@ -107,11 +108,11 @@ fn test_run() {
 fn test_gluon() {
     let vm = new_vm();
     let script = r#"
+        let intp = import! std.int.prim
         let log_message = import! log_message
-        log_message 2
+        log_message (intp.wrapping_add 1 2)
     "#;
     add_extern_module(&vm, "log_message", load_factorial);
-  
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
     

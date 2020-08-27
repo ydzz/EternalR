@@ -73,7 +73,7 @@ impl<'a> Translate<'a> {
         }
     }
 
-    pub fn translate_module(&'a self,module:&Module,global:gast::TypedIdent) -> Result<&'a VMExpr<'a>,TranslateError> {
+    pub fn translate_module(&'a self,module:&Module) -> Result<&'a VMExpr<'a>,TranslateError> {
         let export_module = VMExpr::Const(VMLiteral::Int(114514),Span::new(ByteIndex(0), ByteIndex(0)));
         
         
@@ -82,11 +82,11 @@ impl<'a> Translate<'a> {
             let expr = self.translate_bind(bind, pre_expr)?;
             pre_expr = self.alloc.arena.alloc(expr);
         }
-        let foreign_expr = self.translate_foreign(module,pre_expr,global);
+        let foreign_expr = self.translate_foreign(module,pre_expr);
         Ok(foreign_expr)
     }
 
-    fn translate_foreign(&'a self,module:&Module,pre_expr:&'a VMExpr<'a>,global:gast::TypedIdent) -> &'a VMExpr<'a> {
+    fn translate_foreign(&'a self,module:&Module,pre_expr:&'a VMExpr<'a>) -> &'a VMExpr<'a> {
        let mut cur_expr = pre_expr;
        for ident in module.foreign.iter() {
           let ident_name = ident.as_str().unwrap();
@@ -99,7 +99,7 @@ impl<'a> Translate<'a> {
               location:None,
               name:ident_name
           });
-          let f_name:gast::TypedIdent = gast::TypedIdent::new(global.name.clone());
+          let f_name:gast::TypedIdent = gast::TypedIdent::new(f_sym_name);
           let span = Span::new(BytePos(0), BytePos(0));
           let expr = Named::Expr(self.alloc.arena.alloc(VMExpr::Ident(f_name,span)));
           let let_binding = vmcore::LetBinding {
