@@ -1,9 +1,14 @@
 module Main where
 
-foreign import log_message::Int -> Int
+foreign import log_int::Int -> Int
+
+foreign import prim_int_add_::Int -> Int -> Int
+infixl 6 prim_int_add_ as +
 
 main::Int
-main = log_message 667
+main = log_int (2 + 6)
+
+--std_int_prim.wrapping_add 667 114514
 
 {-
 constRecord :: { varA :: Int, varB :: String,varC::{a::Int } }

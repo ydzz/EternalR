@@ -2,7 +2,6 @@ pub mod translate;
 pub mod utils;
 #[macro_use]
 extern crate collect_mac;
-use gluon::{ThreadExt,Thread,RootedThread};
 
 
 #[test]

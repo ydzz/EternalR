@@ -1,13 +1,12 @@
 use gluon::{RootedThread};
 use ast::types::{Module};
 use er_compiler::translate::Translate;
-use gluon::base::{types::{ArcType},symbol::{SymbolModule,Symbols}};
-use gluon::vm::compiler::{Compiler,CompilerEnv};
+use gluon::base::{symbol::{SymbolModule,Symbols}};
+use gluon::vm::compiler::{Compiler};
 use gluon::base::source::{FileMap};
 use gluon::{ThreadExt};
-use gluon::vm::api::{FunctionRef};
 use gluon::query::{AsyncCompilation};
-
+mod prim;
 use gluon::compiler_pipeline::{CompileValue};
 #[macro_use]
 extern crate gluon;
@@ -26,19 +25,15 @@ impl EternalR {
     }
 
     pub fn run_purs_cf(&mut self,source:&str) {
-        futures::executor::block_on( async {
-            let mut db = self.thread.get_database();
-            let mut compiler =  self.thread.module_compiler(&mut db);
-            let sym = compiler.database.import("log_message".into()).await.unwrap();
-            sym
-         });
          
         let ast_module:Module = serde_json::from_str(source).unwrap();
-        let translate = Translate::new(self.thread.global_env().type_cache());
+        let db = &mut self.thread.get_database();
+        let compiler = self.thread.module_compiler(db);
+        let translate = Translate::new(self.thread.global_env().type_cache(),compiler);
         let vm_expr = translate.translate_module(&ast_module);
         let core_expr = vm_expr.ok().unwrap();
 
-        //dbg!(core_expr);
+        dbg!(core_expr);
 
         let mut symbols = Symbols::new();
         let sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -50,7 +45,6 @@ impl EternalR {
         let db = self.thread.get_database();
         let env =  db.as_env();
         let mut compiler = Compiler::new(&env,&vm_state,sym_modules,&source,"test".into(),true);
-        
         let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(&core_expr).unwrap();
         dbg!(&compiled_module);
         let metadata = std::sync::Arc::new(gluon::base::metadata::Metadata::default());
@@ -79,9 +73,8 @@ impl EternalR {
 
 
 
-use gluon::{new_vm,vm::api::IO,vm::thread::Thread,vm};
+use gluon::{new_vm,vm::thread::Thread,vm};
 use gluon::import::{add_extern_module};
-
 
 
 fn log_message(x: i32) -> i32 {
@@ -97,8 +90,8 @@ fn load_factorial(vm: &Thread) -> vm::Result<vm::ExternModule> {
 fn test_run() {
     let first_purs_string = std::fs::read_to_string("tests/output/Main/corefn.json").unwrap();
     let mut er = EternalR::new();
-    add_extern_module(&er.thread, "log_message", load_factorial);
-  
+    add_extern_module(&er.thread, "log_int", load_factorial);
+    prim::add_int_prim(&er.thread);
     er.run_purs_cf(first_purs_string.as_str());
 }
 
@@ -108,16 +101,15 @@ fn test_run() {
 fn test_gluon() {
     let vm = new_vm();
     let script = r#"
-        let intp = import! std.int.prim
-        let log_message = import! log_message
-        log_message (intp.wrapping_add 1 2)
+        let record = {varA = 12345 }
+        record.varA
     "#;
     add_extern_module(&vm, "log_message", load_factorial);
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
     
     let val = vm.run_expr::<i32>("Fuck", script).unwrap();
-   
+    
    
     dbg!(val.0);
 }
