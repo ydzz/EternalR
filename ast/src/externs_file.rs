@@ -1,16 +1,26 @@
 use serde_derive::{Deserialize, Serialize};
 use serde_cbor::{value::from_value,Value};
-use crate::types::{SourcePos,SourceSpan};
+use crate::types::{SourcePos,SourceSpan,Ident,SourceType};
 
 pub struct ExternsFile {
-    ef_version:String,
-    ef_module_name:String,
+    version:String,
+    module_name:String,
+    declarations:Vec<ExternsDeclaration>,
     source_span:SourceSpan
 }
 
 pub enum ExternsDeclaration {
-    
+    EDType(),
+    EDTypeSynonym(),
+    EDDataConstructor(),
+    EDValue {
+        value_name:Ident,
+        value_type:SourceType
+    },
+    EDClass(),
+    EDInstance()
 }
+
 /*
 -- | A type or value declaration appearing in an externs file
 data ExternsDeclaration =
@@ -76,7 +86,12 @@ impl Into<ExternsFile> for Value {
         let e2 = array.pop();
         let e1 = array.pop();      
         
-        dbg!(e8);
+        let mut e8_array:Vec<Value> = from_value(e8).unwrap();
+        let array2:Vec<Value> = from_value(e8_array.pop().unwrap()).unwrap();
+
+        dbg!(&array2[0]);
+        dbg!(&array2[1]);
+        dbg!(&array2[2]);
         dbg!(source_span);
         todo!()
     }
@@ -104,6 +119,15 @@ impl Into<SourceSpan> for Value {
     }
 }
 
+impl Into<ExternsDeclaration> for Value {
+    fn into(self) -> ExternsDeclaration {
+        let mut array:Vec<Value> = from_value(self).unwrap();
+        let e_num:i32 = from_value( array.remove(0)).unwrap();
+        match e_num {
+            _ => todo!()
+        }
+    }
+}
 #[test]
 fn test_cbor() {
     use std::fs::File;

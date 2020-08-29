@@ -1,3 +1,4 @@
+{-aaaaaaaaaaaaaaaaaa-}
 module Main (main) where
 
 foreign import log_int::Int -> Int
@@ -5,6 +6,7 @@ foreign import log_int::Int -> Int
 foreign import prim_int_add_::Int -> Int -> Int
 infixl 6 prim_int_add_ as +
 
+--注释comment aaa
 main::Int
 main = log_int (2 + 6)
 
