@@ -1,4 +1,4 @@
-use ast::types::{self,Bind,Ann,Expr,Literal,Module,Type};
+use ast::types::{self,Bind,Ann,Expr,Literal,Module,Type,Ident};
 use gluon::vm::core::{Expr as VMExpr,Literal as VMLiteral,self as vmcore,Named,Allocator,Alternative,Pattern};
 use gluon::base::{ast as gast,pos::{BytePos,Span,ByteIndex},types as gt,symbol::{Symbol,SymbolData,Symbols}};
 use std::sync::Arc;
@@ -78,17 +78,38 @@ impl<'a> Translate<'a> {
     }
 
     pub fn translate_module(&'a self,module:&Module) -> Result<&'a VMExpr<'a>,TranslateError> {
-        let export_module = VMExpr::Const(VMLiteral::Int(114514),Span::new(ByteIndex(0), ByteIndex(0)));
-        
-        
+        let export_module = self.translate_exports(&module.exports,&module.decls);
+
+
         let mut pre_expr = self.alloc.arena.alloc(export_module);
         for bind in module.decls.iter().rev() {
             let expr = self.translate_bind(bind, pre_expr)?;
             pre_expr = self.alloc.arena.alloc(expr);
         }
         let foreign_expr = self.translate_foreign(module,pre_expr);
+
         Ok(foreign_expr)
     }
+
+    fn translate_exports(&'a self,exports:&Vec<Ident>,decls:&Vec<Bind<Ann>>) -> VMExpr {
+        let mut fields:Vec<VMExpr> = vec![];
+        for id in exports {
+          let id_name = id.as_str().unwrap();
+        
+          //let typ = todo!();
+          let type_ident:gast::TypedIdent =  gast::TypedIdent::new(self.symbols.borrow_mut().simple_symbol(id_name));
+          let ident = VMExpr::Ident(type_ident,Span::new(ByteIndex(0), ByteIndex(0)));
+          fields.push(ident);
+        }
+        let alloc_expr = self.alloc.arena.alloc_fixed(fields);
+        VMExpr::Data(gast::TypedIdent {
+            typ: self.type_cache.hole(),
+            name:self.dummy_symbol.name.clone()
+        },alloc_expr,ByteIndex(0));
+        VMExpr::Const(VMLiteral::Int(114514),Span::new(ByteIndex(0), ByteIndex(0))) 
+    }
+
+   
 
     fn translate_foreign(&'a self,module:&Module,pre_expr:&'a VMExpr<'a>) -> &'a VMExpr<'a> {
        let mut cur_expr = pre_expr;
@@ -102,12 +123,7 @@ impl<'a> Translate<'a> {
           //import
           futures::executor::block_on(self.compiler.borrow_mut().database.import(ident_name.into())).unwrap();
           
-          
-          let f_sym_name = self.symbols.borrow_mut().symbol(SymbolData {
-              global:true,
-              location:None,
-              name:ident_name
-          });
+          let f_sym_name = self.symbols.borrow_mut().symbol(SymbolData { global:true, location:None, name:ident_name });
           let f_name:gast::TypedIdent = gast::TypedIdent::new(f_sym_name);
           let span = Span::new(BytePos(0), BytePos(0));
           let expr = Named::Expr(self.alloc.arena.alloc(VMExpr::Ident(f_name,span)));
@@ -122,7 +138,7 @@ impl<'a> Translate<'a> {
        cur_expr
     }
 
-    pub fn translate_bind(&'a self,bind:&Bind<Ann>,pre_expr:&'a VMExpr<'a>) -> Result<VMExpr<'a>,TranslateError>  {
+    fn translate_bind_item(&'a self,bind:&Bind<Ann>) -> Result<(vmcore::LetBinding,gt::ArcType),TranslateError> {
         match bind {
             Bind::NonRec(ann,id,expr) => {
                 let id_name = match id {
@@ -136,7 +152,7 @@ impl<'a> Translate<'a> {
                     name:self.symbols.borrow_mut().simple_symbol(id_name),
                     typ:expr_info.typ.clone()
                 };
-                 let named = if expr_info.closure.len() == 0 {
+                let named = if expr_info.closure.len() == 0 {
                     let expr = expr_info.take_expr();
                     Named::Expr(self.alloc.arena.alloc(expr))
                  } else {
@@ -148,10 +164,15 @@ impl<'a> Translate<'a> {
                     expr:named,
                     span_start:span.start(),
                 };
-                Ok(VMExpr::Let(self.alloc.let_binding_arena.alloc(let_binding),pre_expr))
+                Ok((let_binding,expr_info.typ.clone()))
             }
             Bind::Rec(_) => todo!()
         }
+    }
+
+    pub fn translate_bind(&'a self,bind:&Bind<Ann>,pre_expr:&'a VMExpr<'a>) -> Result<VMExpr<'a>,TranslateError>  {
+       let (let_binding,typ) = self.translate_bind_item(bind)?;
+       Ok(VMExpr::Let(self.alloc.let_binding_arena.alloc(let_binding),pre_expr))
     }
 
     pub fn translate_expr(&'a self,expr:&Expr<Ann>,bind_name:&str) -> Result<TExprInfo,TranslateError>  {

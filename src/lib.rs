@@ -8,6 +8,7 @@ use gluon::{ThreadExt};
 use gluon::query::{AsyncCompilation};
 mod prim;
 use gluon::compiler_pipeline::{CompileValue};
+use gluon::vm::api::{OpaqueValue,Hole};
 #[macro_use]
 extern crate gluon;
 pub struct EternalR {
@@ -29,7 +30,7 @@ impl EternalR {
         let ast_module:Module = serde_json::from_str(source).unwrap();
         let db = &mut self.thread.get_database();
         let compiler = self.thread.module_compiler(db);
-        let translate = Translate::new(self.thread.global_env().type_cache(),compiler);
+        let mut translate = Translate::new(self.thread.global_env().type_cache(),compiler);
         let vm_expr = translate.translate_module(&ast_module);
         let core_expr = vm_expr.ok().unwrap();
 
@@ -102,14 +103,15 @@ fn test_gluon() {
     let vm = new_vm();
     let script = r#"
         let record = {varA = 12345 }
-        record.varA
+        let const a b = b
+        {record , const }
     "#;
     add_extern_module(&vm, "log_message", load_factorial);
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
-    
-    let val = vm.run_expr::<i32>("Fuck", script).unwrap();
-    
+   
+    let val = vm.run_expr::<OpaqueValue<&Thread, Hole>>("Fuck", script).unwrap();
+
    
     dbg!(val.0);
 }
