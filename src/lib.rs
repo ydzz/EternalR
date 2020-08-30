@@ -1,5 +1,6 @@
 use gluon::{RootedThread};
 use ast::types::{Module};
+use ast::{from_reader,ExternsFile};
 use er_compiler::translate::Translate;
 use gluon::base::{symbol::{SymbolModule,Symbols}};
 use gluon::vm::compiler::{Compiler};
@@ -7,15 +8,20 @@ use gluon::base::source::{FileMap};
 use gluon::{ThreadExt};
 use gluon::query::{AsyncCompilation};
 mod prim;
+use std::sync::Arc;
 use gluon::compiler_pipeline::{CompileValue};
-use gluon::vm::api::{OpaqueValue,Hole};
+use gluon::vm::api::{OpaqueValue,Hole,Getable,Record,FunctionRef};
+use gluon::vm::{thread::RootedValue,Result as VMResult,core::Expr};
+use gluon::compiler_pipeline::{Executable,ExecuteValue};
+use gluon::vm::core::{Allocator};
+use std::io::Read;
 #[macro_use]
 extern crate gluon;
 pub struct EternalR {
     thread:RootedThread
 }
 
-impl EternalR {
+impl<'a> EternalR {
     pub fn new() -> EternalR {
         let thread = gluon::new_vm();
         thread.get_database_mut().set_implicit_prelude(false);
@@ -25,16 +31,29 @@ impl EternalR {
         }
     }
 
-    pub fn run_purs_cf(&mut self,source:&str) {
-         
+    pub fn compile_core_expr<'alloc,R>(&self,source:&str,externs:R,alloc:Arc<Allocator<'alloc>>) -> &'alloc Expr where R:Read {
+        use er_compiler::translate2::Translate as Translate2;
+        let externs_file = from_reader(externs);
+        //let db = &mut self.thread.get_database();
+        //let compiler = self.thread.module_compiler(db);
+        let trans = Translate2::new(alloc, self.thread.global_env().type_cache());
+
         let ast_module:Module = serde_json::from_str(source).unwrap();
+        let e = trans.translate(ast_module, externs_file);
+        todo!()
+    }
+
+    pub fn run_purs_cf<R,T>(&'a mut self,source:&str,externs:R) -> T where R:std::io::Read,T: for<'value> Getable<'a,'value> {
+        
         let db = &mut self.thread.get_database();
         let compiler = self.thread.module_compiler(db);
-        let mut translate = Translate::new(self.thread.global_env().type_cache(),compiler);
+        let externs = from_reader(externs);
+        let translate = Translate::new(self.thread.global_env().type_cache(),compiler,externs);
+        let ast_module:Module = serde_json::from_str(source).unwrap();
         let vm_expr = translate.translate_module(&ast_module);
         let core_expr = vm_expr.ok().unwrap();
 
-        dbg!(core_expr);
+        //dbg!(core_expr);
 
         let mut symbols = Symbols::new();
         let sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -60,15 +79,14 @@ impl EternalR {
             module:compiled_module
         };
 
-        use gluon::compiler_pipeline::{Executable};
+        
         let val = futures::executor::block_on( 
             compile_value.run_expr(
                 &mut self.thread.clone().module_compiler(&mut self.thread.get_database()),self.thread.clone(),"","",()
             )
-        );
+        ).unwrap();
 
-        
-        dbg!(&val.unwrap().value);
+        T::from_value(&self.thread, val.value.get_variant())
     }
 }
 
@@ -90,29 +108,33 @@ fn load_factorial(vm: &Thread) -> vm::Result<vm::ExternModule> {
 #[test]
 fn test_run() {
     let first_purs_string = std::fs::read_to_string("tests/output/Main/corefn.json").unwrap();
+    let externs = std::fs::File::open("tests/output/Main/externs.cbor").unwrap();
     let mut er = EternalR::new();
     add_extern_module(&er.thread, "log_int", load_factorial);
     prim::add_int_prim(&er.thread);
-    er.run_purs_cf(first_purs_string.as_str());
+    let val: OpaqueValue<&Thread, Hole> = er.run_purs_cf(first_purs_string.as_str(),externs);
+    
 }
-
-
 
 #[test]
 fn test_gluon() {
     let vm = new_vm();
     let script = r#"
         let record = {varA = 12345 }
-        let const a b = b
-        {record , const }
+        let pi:Int = 123
+        let const a b:Int -> Int -> Int = b
+        {record , const,pi }
     "#;
     add_extern_module(&vm, "log_message", load_factorial);
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
-   
-    let val = vm.run_expr::<OpaqueValue<&Thread, Hole>>("Fuck", script).unwrap();
+    vm.load_script("fuck", script).unwrap();
+    
+    //let val = vm.run_expr::<OpaqueValue<&Thread, Hole>>("Fuck", script).unwrap();
+    let mut f:FunctionRef<fn(i32,i32) -> i32>  = vm.get_global("fuck.const").unwrap();
+    let nn = f.call(1i32,2i32);
 
+    dbg!(nn);
    
-    dbg!(val.0);
 }
 

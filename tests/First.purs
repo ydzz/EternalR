@@ -1,4 +1,3 @@
-{-aaaaaaaaaaaaaaaaaa-}
 module Main (main) where
 
 foreign import log_int::Int -> Int

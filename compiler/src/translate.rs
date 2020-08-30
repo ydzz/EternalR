@@ -5,8 +5,11 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use gluon::ModuleCompiler;
 use crate::utils::*;
+use ast::ExternsFile;
+use crate::errors::TranslateError;
 use gluon::query::{AsyncCompilation};
 pub struct Translate<'a> {
+    externs_file:ExternsFile,
     type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>,
     pub alloc:Arc<Allocator<'a>>,
     dummy_symbol:gast::TypedIdent,
@@ -64,8 +67,9 @@ impl<'a> TExprInfo<'a> {
 }
 
 impl<'a> Translate<'a> {
-    pub fn new(type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>,compiler:ModuleCompiler<'a,'a>) -> Self {
+    pub fn new(type_cache:&'a gt::TypeCache<Symbol,gt::ArcType>,compiler:ModuleCompiler<'a,'a>,externs_file:ExternsFile) -> Self {
         Translate {
+            externs_file,
             type_cache,
             alloc:Arc::new(Allocator::new()),
             dummy_symbol: gast::TypedIdent {
@@ -78,7 +82,7 @@ impl<'a> Translate<'a> {
     }
 
     pub fn translate_module(&'a self,module:&Module) -> Result<&'a VMExpr<'a>,TranslateError> {
-        let export_module = self.translate_exports(&module.exports,&module.decls);
+        let export_module = self.translate_exports(&module.exports);
 
 
         let mut pre_expr = self.alloc.arena.alloc(export_module);
@@ -91,22 +95,28 @@ impl<'a> Translate<'a> {
         Ok(foreign_expr)
     }
 
-    fn translate_exports(&'a self,exports:&Vec<Ident>,decls:&Vec<Bind<Ann>>) -> VMExpr {
+    fn translate_exports(&'a self,exports:&Vec<Ident>) -> VMExpr {
+        let type_dic = self.externs_file.decl_type_dic();
         let mut fields:Vec<VMExpr> = vec![];
+        let mut field_types:Vec<gt::Field<Symbol>> = vec![];
         for id in exports {
           let id_name = id.as_str().unwrap();
-        
-          //let typ = todo!();
-          let type_ident:gast::TypedIdent =  gast::TypedIdent::new(self.symbols.borrow_mut().simple_symbol(id_name));
+          let decl_type = *type_dic.get(id_name).unwrap();
+          let typ = self.translate_type(decl_type).unwrap();
+          let type_ident:gast::TypedIdent = gast::TypedIdent::new2(self.symbols.borrow_mut().simple_symbol(id_name),typ.typ.clone());
           let ident = VMExpr::Ident(type_ident,Span::new(ByteIndex(0), ByteIndex(0)));
           fields.push(ident);
+
+          let sym = self.symbols.borrow_mut().simple_symbol(id_name);
+          let field_type = gt::Field::new(sym, typ.typ.clone());
+          field_types.push(field_type);
         }
+        let typ = self.type_cache.record(vec![], field_types);
         let alloc_expr = self.alloc.arena.alloc_fixed(fields);
         VMExpr::Data(gast::TypedIdent {
-            typ: self.type_cache.hole(),
+            typ,
             name:self.dummy_symbol.name.clone()
-        },alloc_expr,ByteIndex(0));
-        VMExpr::Const(VMLiteral::Int(114514),Span::new(ByteIndex(0), ByteIndex(0))) 
+        },alloc_expr,ByteIndex(0))
     }
 
    
@@ -321,7 +331,7 @@ impl<'a> Translate<'a> {
         }
     }
 
-    fn translate_type<'b>(&'a self,typ:&'b Type<()>) -> Result<TTypeInfo,TransferType>  {
+    fn translate_type<'b,T>(&'a self,typ:&'b Type<T>) -> Result<TTypeInfo,TransferType>  {
         match &typ {
             Type::TypeConstructor(_,proper) => {
                let type_name = types::proper_name_as_str(&proper.1);
@@ -379,7 +389,7 @@ impl<'a> Translate<'a> {
                 }             
             },
             Type::RCons(_,_,_,_) => {
-                let mut cur_type:&Type<()> = typ;
+                let mut cur_type:&Type<T> = typ;
                 let mut fields = vec![];
                 loop { 
                     match cur_type {
@@ -399,7 +409,7 @@ impl<'a> Translate<'a> {
         }
     }
 
-    fn collect_app_type<'b>(&'a self,typ:&Type<()>) -> Vec<Result<gt::ArcType,TransferType>>  {
+    fn collect_app_type<'b,T>(&'a self,typ:&Type<T>) -> Vec<Result<gt::ArcType,TransferType>>  {
         let mut cur_type = typ;
         let mut ret_vec = vec![];
         loop { 
@@ -426,11 +436,7 @@ impl<'a> Translate<'a> {
 
 }
 
-#[derive(Debug)]
-pub enum  TranslateError {
-    TranslateNotNanFloat,
-    TypeError
-}
+
 
 
 fn source_span_to_byte_span(source_span:&types::SourceSpan) -> Span<BytePos>  {

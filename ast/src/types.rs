@@ -20,8 +20,8 @@ pub struct SourceSpan {
   pub start:SourcePos,
   pub end:SourcePos
 }
-
-pub type SourceAnn = (SourceSpan, Vec<Comment>);
+#[derive(Debug)]
+pub struct SourceAnn(pub SourceSpan,pub Vec<Comment>);
 
 pub type SourceType = Type<SourceAnn>;
 
