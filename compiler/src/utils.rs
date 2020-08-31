@@ -1,4 +1,6 @@
 use typed_arena::{Arena};
+use gluon::base::pos::{BytePos,Span};
+use ast::types::{SourceSpan,SourcePos};
 
 pub(crate) trait ArenaExt<T> {
     fn alloc_fixed<'a, I>(&'a self, iter: I) -> &'a mut [T]
@@ -58,3 +60,19 @@ impl<T> ArenaExt<T> for Arena<T> {
     }
 }
 
+
+
+pub fn source_span_to_byte_span(source_span:&SourceSpan) -> Span<BytePos>  {
+    let start = source_pos_to_byte_pos(&source_span.start);
+    let end =source_pos_to_byte_pos(&source_span.end);
+    Span::new(start, end)
+}
+
+pub fn source_pos_to_byte_pos(source_pos:&SourcePos) -> BytePos  {
+    let uline = source_pos.line as u32;
+    let ucol = source_pos.col as u32;
+    let hight16 = (uline << 16) & 0xffff0000;
+    let low16 = ucol & & 0x0000ffff;
+    let value = hight16 | low16;
+    BytePos(value)
+}

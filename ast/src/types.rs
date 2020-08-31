@@ -89,6 +89,7 @@ pub enum ProperName {
     Namespace(String)
 }
 
+
 pub fn proper_name_as_str(proper_name:&ProperName) -> &str {
   match proper_name {
     ProperName::TypeName(s) => s.as_str(),

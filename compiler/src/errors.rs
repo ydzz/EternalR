@@ -3,5 +3,6 @@ pub enum  TranslateError {
     TranslateNotNanFloat,
     TypeError,
     IdentToString,
-    NotFindType
+    NotFindType,
+    PartialType
 }
