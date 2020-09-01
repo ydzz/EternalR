@@ -6,21 +6,17 @@ foreign import prim_int_add_::Int -> Int -> Int
 infixl 6 prim_int_add_ as +
 
 
-data Fuck = FuckA Int | FuckB
+data Fuck a = FuckA Int String a | FuckB
 
-newtype Player = Player { name::String }
 
-constF :: Fuck
-constF = let a = 100 + b in FuckA a
- where
-   b = 1
+
+constF :: Fuck Int
+constF = FuckB
 
 --注释comment aaa
 main::Int
-main = log_int (2 + 6 + a)
- where
-  a = 555 + b
-  b = 11
+main = 1111
+
 
 --std_int_prim.wrapping_add 667 114514
 
