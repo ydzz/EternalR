@@ -9,6 +9,7 @@ dependencies = [
  "futures 0.3.5",
  "gluon",
  "serde_json",
+ "serde_state",
 ]
 
 [[package]]

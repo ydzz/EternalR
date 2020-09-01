@@ -28,8 +28,8 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         }
     }
 
-    pub fn translate(&self,module:Module,externs_file:ExternsFile,mut compiler: ModuleCompiler<'_,'_>) -> Result<&'alloc VMExpr<'alloc>,TranslateError> {
-        let export_expr:VMExpr<'alloc> = self.translate_exports(&module.exports, &externs_file)?;
+    pub fn translate(&self,module:&Module,externs_file:ExternsFile,mut compiler: ModuleCompiler<'_,'_>) -> Result<(&'alloc VMExpr<'alloc>,ArcType),TranslateError> {
+        let (export_expr,typ):(VMExpr<'alloc>,ArcType) = self.translate_exports(&module.exports, &externs_file)?;
         let mut pre_expr = self.alloc.arena.alloc(export_expr);
         for bind in module.decls.iter().rev() {
            let (let_binding,_) = self.translate_bind_item(bind)?;
@@ -37,7 +37,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
            pre_expr = self.alloc.arena.alloc(let_expr);
         }
         let foreign = self.translate_foreign(&module, pre_expr,&mut compiler)?;
-        Ok(foreign)
+        Ok((foreign,typ.clone()))
     }
 
     fn translate_bind_item(&self,bind:&Bind<Ann>) -> Result<(LetBinding<'alloc>,ArcType),TranslateError> {
@@ -241,7 +241,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         }
     }
 
-    fn translate_exports(&self,exports:&Vec<Ident>,externs_file:&ExternsFile) ->  Result<VMExpr<'alloc>,TranslateError> {
+    fn translate_exports(&self,exports:&Vec<Ident>,externs_file:&ExternsFile) ->  Result<(VMExpr<'alloc>,ArcType),TranslateError> {
         let type_dic = externs_file.decl_type_dic();
         let mut field_types:Vec<Field<Symbol>> = vec![];
         let mut fields:Vec<VMExpr<'alloc>> = vec![];
@@ -260,10 +260,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         let typ = self.type_cache.record(vec![], field_types);
         let alloc_expr = self.alloc.arena.alloc_fixed(fields);
         let rec = VMExpr::Data(TypedIdent {
-            typ,
+            typ:typ.clone(),
             name:self.simple_symbol(""),
         },alloc_expr,ByteIndex(0));
-        Ok(rec)
+        Ok((rec,typ.clone()))
     }
 
     fn translate_type<T>(&self,typ:&AstType<T>) -> Result<TTypeInfo,TransferType>  {
