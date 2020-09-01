@@ -330,7 +330,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                     match cur_type {
                         AstType::RCons(_,label,head_,tail_) => {
                             let field_type = self.translate_type(head_).unwrap().typ;
-                            let name_sym = self.symbols.borrow_mut().simple_symbol(label.as_str());
+                            let name_sym = self.simple_symbol(label.as_str());
                             let field = Field::new(name_sym, field_type);
                             fields.push(field);
                             cur_type = tail_;

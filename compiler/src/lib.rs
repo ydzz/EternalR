@@ -1,6 +1,8 @@
 pub mod translate;
 pub mod utils;
 mod errors;
+mod grabtypes;
+
 #[macro_use]
 extern crate collect_mac;
 
