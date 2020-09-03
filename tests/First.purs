@@ -1,4 +1,4 @@
-module Main (main,Fuck) where
+module Main (main) where
 
 foreign import log_int::Int -> Int
 
@@ -6,12 +6,10 @@ foreign import prim_int_add_::Int -> Int -> Int
 infixl 6 prim_int_add_ as +
 
 
-data Fuck a = FuckA Int String a | FuckB
-
-
+data Fuck a = FuckA String | FuckB Int | FuckC a
 
 constF :: Fuck Int
-constF = FuckB
+constF = FuckB 111
 
 --注释comment aaa
 main::Int

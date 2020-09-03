@@ -342,7 +342,11 @@ fn expr_from_value(val:&serde_json::Value) -> Option<Expr<Ann>> {
                                    .map(|v| {
                                       Ident::Ident(v.as_str().unwrap().to_string())
                                     }).collect();
-            Some(Expr::Constructor(ann,proper_name,constructor_name,fileds))
+            let types:Vec<Type<()>> = val_object.get("fieldTypes")?.as_array()?.iter()
+                                   .map(|v| {
+                                     ann_type_from_value(v).unwrap()
+                                    }).collect();
+            Some(Expr::Constructor(ann,proper_name,constructor_name,fileds,types))
         },
         "Accessor" => {
             let field = val_object.get("fieldName")?.as_str()?.to_string();

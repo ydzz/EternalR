@@ -38,8 +38,8 @@ impl<'a> EternalR {
         let compiler = self.thread.module_compiler(db);
         let trans = Translate::new(alloc, self.thread.global_env().type_cache());
 
-        let ast_module:Module = serde_json::from_str(source).unwrap();
-        let (core_expr,typ):(&'alloc Expr<'alloc>,ArcType) = trans.translate(&ast_module, externs_file,compiler).unwrap();
+        let mut ast_module:Module = serde_json::from_str(source).unwrap();
+        let (core_expr,typ):(&'alloc Expr<'alloc>,ArcType) = trans.translate(&mut ast_module, externs_file,compiler).unwrap();
         (core_expr,typ,ast_module)
     }
 
@@ -136,9 +136,9 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-        type Fuck = | FuckA | FuckB
-        let a = FuckA
-        {a }
+        type Fuck a = | FuckA Int | FuckB String | FuckC
+        let f = FuckA 111
+        f
     "#;
     //add_extern_module(&vm, "log_message", load_int);
     vm.get_database_mut().set_implicit_prelude(false);

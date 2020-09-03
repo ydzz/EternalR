@@ -15,8 +15,8 @@ use gluon::query::{AsyncCompilation};
 
 pub struct Translate<'vm,'alloc>{
    pub alloc:&'alloc Allocator<'alloc>,
-   type_cache:&'vm TypeCache<Symbol,ArcType>,
-   symbols: RefCell<Symbols>,
+   pub type_cache:&'vm TypeCache<Symbol,ArcType>,
+   pub symbols: RefCell<Symbols>,
 }
 
 impl<'vm,'alloc> Translate<'vm,'alloc> {
@@ -28,7 +28,8 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         }
     }
 
-    pub fn translate(&self,module:&Module,externs_file:ExternsFile,mut compiler: ModuleCompiler<'_,'_>) -> Result<(&'alloc VMExpr<'alloc>,ArcType),TranslateError> {
+    pub fn translate(&self,module:&mut Module,externs_file:ExternsFile,mut compiler: ModuleCompiler<'_,'_>) -> Result<(&'alloc VMExpr<'alloc>,ArcType),TranslateError> {
+        self.grab_type_info(module);
         let (export_expr,typ):(VMExpr<'alloc>,ArcType) = self.translate_exports(&module.exports, &externs_file)?;
         let mut pre_expr = self.alloc.arena.alloc(export_expr);
         for bind in module.decls.iter().rev() {

@@ -118,7 +118,7 @@ pub enum Literal<A> {
 #[derive(Debug)]
 pub enum Expr<A> {
   Literal(A,Literal<Box<Expr<A>>>),
-  Constructor(A,ProperName,ProperName,Vec<Ident>),
+  Constructor(A,ProperName,ProperName,Vec<Ident>,Vec<Type<()>>),
   Accessor(A,String,Box<Expr<A>>),
   ObjectUpdate(A,Box<Expr<A>>,Vec<(String,Box<Expr<A>>)>),
   Abs(A,Ident,Box<Expr<A>>),
