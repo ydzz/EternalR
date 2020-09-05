@@ -72,6 +72,7 @@ impl<'a> EternalR {
     pub fn load_core_fn<R>(&self,source:&str,externs:R) where R:Read {
         let alloc = Arc::new(Allocator::new());
         let (vm_expr,typ,module) = self.load_vm_expr(source, externs, &alloc);
+        dbg!(vm_expr);
         let compiled_module = self.compile_vm_expr(vm_expr);
        
         let metadata = Arc::new(Metadata::default());
@@ -136,9 +137,10 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-        type Fuck a = | FuckA Int | FuckB String | FuckC
-        let f = FuckA 111
-        f
+        type Fuck a = | FuckA Int  | FuckB a | FuckC
+        
+        let ff = FuckB 1
+        ff
     "#;
     //add_extern_module(&vm, "log_message", load_int);
     vm.get_database_mut().set_implicit_prelude(false);

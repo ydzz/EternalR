@@ -1,7 +1,8 @@
 use gluon::vm::core::{Allocator,Pattern,Alternative,Named};
-use gluon::base::types::{ArcType,TypeCache,Field,KindedIdent,Type};
+use gluon::base::types::{ArcType,TypeCache,Field,KindedIdent,Type,Generic};
 use gluon::base::symbol::{Symbol,Symbols,SymbolData};
 use gluon::base::ast::{TypedIdent};
+use gluon::base::{kind::Kind};
 use gluon::base::pos::{BytePos};
 use gluon::vm::core::{Expr as VMExpr,Closure,Literal as VMLiteral,LetBinding};
 use std::cell::RefCell;
@@ -267,7 +268,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         Ok((rec,typ.clone()))
     }
 
-    fn translate_type<T>(&self,typ:&AstType<T>) -> Result<TTypeInfo,TransferType>  {
+    pub(crate) fn translate_type<T>(&self,typ:&AstType<T>) -> Result<TTypeInfo,TransferType>  {
         match &typ {
             AstType::TypeConstructor(_,proper) => {
                 let type_name = types::proper_name_as_str(&proper.1);
@@ -341,6 +342,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 }
                 Ok(TTypeInfo::new(self.type_cache.record(vec![], fields)))
             },
+            AstType::TypeVar(_,var) => {
+               let generic =  Generic::new(self.simple_symbol(var.as_str()), Kind::typ());
+               Ok( TTypeInfo::new(Type::generic(generic)))
+            },
             _ =>  Ok(TTypeInfo::new(self.type_cache.hole()))
         }
     }
@@ -377,20 +382,20 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         }
     }
 
-    fn simple_symbol(&self,name:&str) -> Symbol {
+    pub(crate) fn simple_symbol(&self,name:&str) -> Symbol {
         self.symbols.borrow_mut().simple_symbol(name)
     }
 }
 
 
 #[derive(Debug,Clone)]
-enum TransferType {
+pub(crate) enum TransferType {
     PartialTypeConstructor(String),
     Function,
     FunctionCtor(ArcType)
 }
-
-struct TTypeInfo {
+#[derive(Debug)]
+pub(crate) struct TTypeInfo {
     pub typ:ArcType,
     pub args:Vec<ArcType>
 }

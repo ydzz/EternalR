@@ -1,13 +1,28 @@
 use ast::types::Module;
 use ast::types::{self,Bind,Expr,Ann,Type};
-use crate::translate::Translate;
+use crate::translate::{Translate,TTypeInfo};
 use std::collections::HashMap;
-pub struct GrabTypeInfo {
+use gluon::base::types::{Field,ArcType};
 
+pub struct GrabTypeInfo {
+    type_dic:HashMap<String,ArcType>
+}
+
+impl GrabTypeInfo {
+    pub fn add_type(&mut self,name:&str,typ:ArcType) {
+        self.type_dic.insert(name.to_string(), typ);
+    }
+}
+
+impl Default for GrabTypeInfo {
+    fn default() -> Self {
+        GrabTypeInfo {type_dic : HashMap::new() }
+    }
 }
 
 impl<'vm,'alloc> Translate<'vm,'alloc> {
     pub fn grab_type_info(&self,module:&mut Module) -> GrabTypeInfo {
+        let mut ret_type_info = GrabTypeInfo::default();
         let mut new_decls:Vec<Bind<Ann>> = vec![];
         let mut cache_map:HashMap<String,Vec<(String,Vec<String>,Vec<Type<()>>) >> = HashMap::new();
 
@@ -36,8 +51,47 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             }
         }
         
-        dbg!(cache_map);
         module.decls = new_decls;
-        GrabTypeInfo {}
+
+        for (k,item) in cache_map.iter() {
+            let mut fields = vec![];
+            let mut type_vars:Vec<String> = vec![];
+            for (ctor_name,names,typs) in item {
+                let mut gtypes:Vec<TTypeInfo> = vec![];
+                for typ in typs {
+                    type_vars.extend(self.search_type_var(typ));
+                    gtypes.push(self.translate_type(typ).unwrap());
+                } 
+                let args:Vec<_> = gtypes.iter().map(|t| t.typ.clone()).collect();
+               
+                let sym = self.simple_symbol(ctor_name.as_str());
+                let field = if names.len() == 0 {
+                    Field::new(sym, self.type_cache.opaque())
+                }  else {
+                    Field::ctor( sym, args)
+                };
+                fields.push(field);
+            }
+            let var_type = self.type_cache.variant(fields);
+            ret_type_info.add_type(k.as_str(), var_type);
+        }
+        ret_type_info
+    }
+
+    fn search_type_var(&self,typ:&Type<()>) -> Vec<String> {
+        let mut vars:Vec<String> = vec![];
+        match typ {
+            Type::TypeVar(_,var) => {
+                vars.push(var.to_string());
+                  
+            },
+            Type::TypeApp(_,a,b) => {
+                vars.extend(self.search_type_var(a));
+                vars.extend(self.search_type_var(b));   
+            }
+            _ => ()
+        }
+       
+        vars
     }
 }
