@@ -36,7 +36,7 @@ impl<'a> EternalR {
         let externs_file = from_reader(externs);
         let db = &mut self.thread.get_database();
         let compiler = self.thread.module_compiler(db);
-        let trans = Translate::new(alloc, self.thread.global_env().type_cache());
+        let trans = Translate::new(alloc, self.thread.global_env().type_cache(),todo!());
 
         let mut ast_module:Module = serde_json::from_str(source).unwrap();
         let (core_expr,typ):(&'alloc Expr<'alloc>,ArcType) = trans.translate(&mut ast_module, externs_file,compiler).unwrap();
@@ -137,13 +137,12 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-        type Fuck a = | FuckA Int  | FuckB a | FuckC
-        
-        let ff = FuckB 1
-        ff
+        //type Bool = | True | False
+        let b = if True then 222 else 111
+        b
     "#;
     //add_extern_module(&vm, "log_message", load_int);
-    vm.get_database_mut().set_implicit_prelude(false);
+    vm.get_database_mut().set_implicit_prelude(true);
     vm.run_io(true);
     
     vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;

@@ -12,20 +12,24 @@ use ast::types::{self,Module,Type as AstType,Literal,Expr,Bind,Ident,Ann};
 use crate::errors::TranslateError;
 use gluon::ModuleCompiler;
 use crate::utils::*;
+use std::sync::Arc;
 use gluon::query::{AsyncCompilation};
+use crate::grabtypes::TypInfoEnv;
 
 pub struct Translate<'vm,'alloc>{
    pub alloc:&'alloc Allocator<'alloc>,
    pub type_cache:&'vm TypeCache<Symbol,ArcType>,
    pub symbols: RefCell<Symbols>,
+   pub type_env:Arc<TypInfoEnv>
 }
 
 impl<'vm,'alloc> Translate<'vm,'alloc> {
-    pub fn new(alloc:&'alloc Allocator<'alloc>,type_cache:&'vm TypeCache<Symbol,ArcType>) -> Self {
+    pub fn new(alloc:&'alloc Allocator<'alloc>,type_cache:&'vm TypeCache<Symbol,ArcType>,type_env:Arc<TypInfoEnv>) -> Self {
         Translate {
             alloc,
             type_cache,
-            symbols:RefCell::new(Symbols::new())
+            symbols:RefCell::new(Symbols::new()),
+            type_env
         }
     }
 
@@ -101,17 +105,25 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         match expr {
             Expr::Literal(ann,lit) => {
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
-                let vmexpr = self.translate_literal(lit,ann,typ.typ.clone())?;
-                Ok(TExprInfo::new(vmexpr,typ.typ))
+                let vmexpr = self.translate_literal(lit,ann,typ.typ())?;
+                Ok(TExprInfo::new(vmexpr,typ.typ()))
             },
             Expr::Var(ann,qual) => {
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let name = qual.1.as_str().unwrap();
-                let ident = VMExpr::Ident(TypedIdent {
-                    typ:typ.typ.clone(),
+                let ident = TypedIdent {
+                    typ:typ.typ(),
                     name:self.simple_symbol(name)
-                },source_span_to_byte_span(&ann.0));
-                Ok(TExprInfo::new(ident ,typ.typ))
+                };
+                if name.chars().next().unwrap().is_uppercase() {
+                    let data_expr = VMExpr::Data(ident,&[],source_span_to_byte_span(&ann.0).start() );
+                    
+                    Ok(TExprInfo::new(data_expr, typ.typ()))
+                } else {
+                    let ident_expr = VMExpr::Ident(ident,source_span_to_byte_span(&ann.0));
+                    Ok(TExprInfo::new(ident_expr ,typ.typ()))
+                }
+                
             },
             Expr::Abs(ann,ident,expr) => {
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
@@ -133,12 +145,12 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                         } 
                     }
                 }
-                let typ2 = typ.typ.clone();
+                let typ2 = typ.typ();
                 let mut expr_body = self.translate_expr(cur_expr,"")?;
                 let pos = source_span_to_byte_span(&ann.0);
                 let closure = Closure {
                     pos:pos.start(),
-                    name:TypedIdent::new2(Symbol::from(bind_name), typ.typ),
+                    name:TypedIdent::new2(Symbol::from(bind_name), typ.typ()),
                     args,
                     expr:self.alloc.arena.alloc(expr_body.take_expr()),  
                 };
@@ -174,10 +186,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                        let prim_id = TypedIdent::new2(sym, id.typ.clone());
                        let new_expr = VMExpr::Ident(prim_id, source_span_to_byte_span(&ann.0));
                        let new_ea = self.alloc.arena.alloc(new_expr);
-                       Ok(TExprInfo::new(VMExpr::Call(new_ea,eb), typ.typ))
+                       Ok(TExprInfo::new(VMExpr::Call(new_ea,eb), typ.typ()))
                     },
                     _ => {
-                        Ok(TExprInfo::new(VMExpr::Call(ea,eb), typ.typ))
+                        Ok(TExprInfo::new(VMExpr::Call(ea,eb), typ.typ()))
                     }
                 }
                 
@@ -191,16 +203,16 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                
                 let pattern = Pattern::Record {
                     typ:expr_info.typ,
-                    fields:vec![(TypedIdent::new2(field_sym.clone(),typ.typ.clone()),None)]
+                    fields:vec![(TypedIdent::new2(field_sym.clone(),typ.typ()),None)]
                 };
-                let out_expr = VMExpr::Ident(TypedIdent::new2(field_sym,typ.typ.clone()),source_span_to_byte_span(&ann.0));
+                let out_expr = VMExpr::Ident(TypedIdent::new2(field_sym,typ.typ()),source_span_to_byte_span(&ann.0));
                
                 let alt = Alternative { pattern, expr: self.alloc.arena.alloc(out_expr) };
                 let alt_list = self.alloc.alternative_arena.alloc_fixed(std::iter::once(alt) );
                 
                 let match_expr = VMExpr::Match(ident_expr,alt_list);
                 dbg!(&match_expr);
-                Ok(TExprInfo::new(match_expr, typ.typ))
+                Ok(TExprInfo::new(match_expr, typ.typ()))
             },
             expr => { dbg!(expr); todo!() } 
         }
@@ -251,12 +263,12 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             let id_name = self.id2str(id)?;
             let decl_type = *type_dic.get(id_name).ok_or(TranslateError::NotFindType)?;
             let typ = self.translate_type(decl_type).map_err(|_| TranslateError::PartialType)?;
-            let type_ident:TypedIdent = TypedIdent::new2(self.simple_symbol(id_name),typ.typ.clone());
+            let type_ident:TypedIdent = TypedIdent::new2(self.simple_symbol(id_name),typ.typ());
             let ident = VMExpr::Ident(type_ident,Span::new(ByteIndex(0), ByteIndex(0)));
             fields.push(ident);
 
             let sym = self.simple_symbol(id_name);
-            let field_type = Field::new(sym, typ.typ.clone());
+            let field_type = Field::new(sym, typ.typ());
             field_types.push(field_type);
         }
         let typ = self.type_cache.record(vec![], field_types);
@@ -270,9 +282,9 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
 
     pub(crate) fn translate_type<T>(&self,typ:&AstType<T>) -> Result<TTypeInfo,TransferType>  {
         match &typ {
-            AstType::TypeConstructor(_,proper) => {
-                let type_name = types::proper_name_as_str(&proper.1);
-                match &proper.0 {
+            AstType::TypeConstructor(_,qual_proper) => {
+                let type_name = types::proper_name_as_str(&qual_proper.1);
+                match &qual_proper.0 {
                     Some(qual_str) if qual_str == "Prim" => {
                         match type_name {
                           "Int" => Ok(TTypeInfo::new(self.type_cache.int())),
@@ -280,38 +292,46 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                           "String" => Ok(TTypeInfo::new(self.type_cache.string())),
                           "Char"   => Ok(TTypeInfo::new(self.type_cache.char())),
                           "Array"  => Ok(TTypeInfo::new(self.type_cache.array_builtin())),
-                          "Record" => Err(TransferType::PartialTypeConstructor(type_name.to_string())),
+                          "Record" => Err(TransferType::PartialRecord(type_name.to_string())),
                           "Function" => Err(TransferType::Function),
                           _ => Ok(TTypeInfo::new(Type::ident(KindedIdent::new(Symbol::from(type_name)))))
                         }
                     },
-                     _ => Ok(TTypeInfo::new(Type::ident(KindedIdent::new(Symbol::from(type_name)))))
+                     _ => {
+                        let qual_type_name = qual_proper.join_name();
+                        let var_len = self.type_env.type_dic.borrow().get(&qual_type_name).unwrap().type_vars.len();
+                        let gluon_type = self.type_env.type_dic.borrow().get(&qual_type_name).unwrap().gluon_type.clone();
+                        if var_len == 0 {
+                            let alias =  Type::alias(self.simple_symbol(type_name), vec![], gluon_type);
+                            Ok(TTypeInfo::new(alias))
+                        } else {
+                            Ok(TTypeInfo::new_env_type(qual_type_name))
+                        }
+                     } 
                 }
             },
-            AstType::TypeApp(_,ta,tb) => {
-                let head = self.translate_type(ta);
-                let tail_vecs = self.collect_app_type(tb);
-                match head {
+            AstType::TypeApp(_,_,tb) => {
+                let app_list = self.flat_app_type(typ);
+                match &app_list[0] {
                     Err(ref trans_type) => {
                         match trans_type {
-                            TransferType::PartialTypeConstructor(_) => {
-                                //if *str == "Record" {
-                                   return Ok(TTypeInfo::new(tail_vecs[0].as_ref().unwrap().clone()));
-                                //}
+                            TransferType::PartialRecord(_) => {
+                                 return Ok(TTypeInfo::new(app_list[1].as_ref().unwrap().typ()));
                             },
                             TransferType::Function => {
-                                let arc_type = tail_vecs[0].as_ref().unwrap().clone();
+                                let arc_type = app_list[1].as_ref().unwrap().typ();
                                 Err(TransferType::FunctionCtor(arc_type))
                             },
                             TransferType::FunctionCtor(arc_type) => {
-                                let mut flat_types:Vec<_> = tail_vecs.iter().map(|v| {
+                                dbg!(&app_list);
+                                let mut flat_types:Vec<ArcType> = app_list.iter().skip(1).map(|v| {
                                     match v {
-                                        Err(TransferType::FunctionCtor(at)) => at,
-                                        Ok(t) => t,
+                                        Err(TransferType::FunctionCtor(at)) => at.clone(),
+                                        Ok(t) if t.typ.is_some() => t.typ(),
                                         _ => panic!("translate fuction type error")
                                     }
                                 }).collect();
-                                flat_types.insert(0, arc_type);
+                                flat_types.insert(0, arc_type.clone());
                                 let tail = flat_types.pop().unwrap();
                                 let ft = self.type_cache.function( flat_types.iter().map(|v|(*v).clone()),tail.clone());
                                 let clone_flat_types = flat_types.iter().map(|v|(*v).clone()).collect();
@@ -320,8 +340,18 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                         }
                     },
                     Ok(ta)  => {
-                        let typb = self.translate_type(tb)?;
-                        Ok(TTypeInfo::new(Type::app(ta.typ, collect!(typb.typ))))
+                        if let Some(qual_type_name) = ta.cache_type.as_ref() {
+                            let gluon_type = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().gluon_type.clone();
+                            let type_name = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().type_name.clone();
+                            let type_vars = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().type_vars.clone();
+
+                            let alias =  Type::alias(self.simple_symbol(type_name.as_str()), type_vars, gluon_type);
+                            dbg!(&alias);
+                            Ok(TTypeInfo::new(alias))
+                        } else {
+                            let typb = self.translate_type(tb)?;
+                            Ok(TTypeInfo::new(Type::app(ta.typ(), collect!(typb.typ()))))
+                        }
                     }
                 }
             }
@@ -331,7 +361,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 loop { 
                     match cur_type {
                         AstType::RCons(_,label,head_,tail_) => {
-                            let field_type = self.translate_type(head_).unwrap().typ;
+                            let field_type = self.translate_type(head_).unwrap().typ();
                             let name_sym = self.simple_symbol(label.as_str());
                             let field = Field::new(name_sym, field_type);
                             fields.push(field);
@@ -350,23 +380,25 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         }
     }
 
-    fn collect_app_type<T>(&self,typ:&AstType<T>) -> Vec<Result<ArcType,TransferType>>  {
-        let mut cur_type = typ;
-        let mut ret_vec = vec![];
-        loop { 
-            match cur_type {
-                AstType::TypeApp(_,head,tail) => {
-                    ret_vec.push(self.translate_type(head).map(|v|v.typ));
-                    cur_type = tail;
+   fn flat_app_type<T>(&self,typ:&AstType<T>) -> Vec<Result<TTypeInfo,TransferType>> {
+       let mut cur_type = typ;
+       let mut list:Vec<Result<TTypeInfo,TransferType>> = vec![];
+       loop { 
+           match cur_type {
+               AstType::TypeApp(_,head,tail) => {
+                   list.push(self.translate_type(head));
+                   cur_type = tail;
                 },
                 _ => {  
-                    ret_vec.push(self.translate_type(cur_type).map(|v|v.typ));
+                    list.push(self.translate_type(cur_type));
                     break;
                 }
             }
         }
-        ret_vec
-    }
+        list
+   }
+
+    
 
     fn id2str<'a>(&self,id:&'a Ident) -> Result<&'a str,TranslateError> {
         match id.as_str() {
@@ -390,29 +422,42 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
 
 #[derive(Debug,Clone)]
 pub(crate) enum TransferType {
-    PartialTypeConstructor(String),
+    PartialRecord(String),
     Function,
     FunctionCtor(ArcType)
 }
 #[derive(Debug)]
 pub(crate) struct TTypeInfo {
-    pub typ:ArcType,
-    pub args:Vec<ArcType>
+    pub typ:Option<ArcType>,
+    pub args:Vec<ArcType>,
+    pub cache_type:Option<String>
 }
 
 impl TTypeInfo {
     pub fn new(t:ArcType) -> Self {
         TTypeInfo { 
-            typ:t,args:vec![] 
+            typ:Some(t),args:vec![],
+            cache_type:None
         }
+    }
+
+    pub fn typ(&self) -> ArcType {
+        self.typ.as_ref().map(|a| a.clone() ).unwrap()
     }
 
     pub fn new_func(t:ArcType,args:Vec<ArcType>) -> Self {
         TTypeInfo {
-            typ:t,
-            args
+            typ:Some(t),
+            args,
+            cache_type:None
         }
     }
+    pub fn new_env_type(str:String) -> Self {
+        TTypeInfo { 
+            typ:None,args:vec![],
+            cache_type:Some(str)
+        }
+    } 
 }
 
 pub struct TExprInfo<'a> {

@@ -1,15 +1,15 @@
 module Main (main) where
 
-foreign import log_int::Int -> Int
+--foreign import log_int::Int -> Int
 
 foreign import prim_int_add_::Int -> Int -> Int
 infixl 6 prim_int_add_ as +
 
 
-data Fuck a = FuckA String | FuckB Int | FuckC a
+data Bool = True | False
 
-constF :: Fuck Int
-constF = FuckB 111
+constF ::Bool
+constF = True
 
 --注释comment aaa
 main::Int

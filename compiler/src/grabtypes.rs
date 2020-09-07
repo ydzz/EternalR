@@ -2,30 +2,37 @@ use ast::types::Module;
 use ast::types::{self,Bind,Expr,Ann,Type};
 use crate::translate::{Translate,TTypeInfo};
 use std::collections::HashMap;
-use gluon::base::types::{Field,ArcType};
+use std::cell::RefCell;
+use gluon::base::symbol::Symbol;
+use gluon::base::types::{Field,ArcType,Generic};
+use gluon::base::kind::Kind;
 
-pub struct GrabTypeInfo {
-    type_dic:HashMap<String,ArcType>
+#[derive(Default)]
+pub struct TypInfoEnv {
+   pub type_dic: RefCell<HashMap<String,TypeInfo>>
 }
 
-impl GrabTypeInfo {
-    pub fn add_type(&mut self,name:&str,typ:ArcType) {
-        self.type_dic.insert(name.to_string(), typ);
+impl TypInfoEnv {
+    pub fn add_type_info(&self,type_info:TypeInfo) {
+        self.type_dic.borrow_mut().insert(type_info.qual_type_name.clone(), type_info);
     }
+  
 }
 
-impl Default for GrabTypeInfo {
-    fn default() -> Self {
-        GrabTypeInfo {type_dic : HashMap::new() }
-    }
+#[derive(Debug)]
+pub struct TypeInfo {
+    pub qual_type_name:String,
+    pub type_name:String,
+    pub  gluon_type:ArcType,
+    pub type_str_vars:Vec<String>,
+    pub type_vars:Vec<Generic<Symbol>>
 }
 
 impl<'vm,'alloc> Translate<'vm,'alloc> {
-    pub fn grab_type_info(&self,module:&mut Module) -> GrabTypeInfo {
-        let mut ret_type_info = GrabTypeInfo::default();
+    pub fn grab_type_info(&self,module:&mut Module)  {
         let mut new_decls:Vec<Bind<Ann>> = vec![];
         let mut cache_map:HashMap<String,Vec<(String,Vec<String>,Vec<Type<()>>) >> = HashMap::new();
-
+        
         for decl in module.decls.drain(0..) {
             match decl {
                 Bind::NonRec(ann,ident,expr) => {
@@ -50,9 +57,9 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 bind => new_decls.push(bind)
             }
         }
-        
         module.decls = new_decls;
 
+        //collect type
         for (k,item) in cache_map.iter() {
             let mut fields = vec![];
             let mut type_vars:Vec<String> = vec![];
@@ -62,7 +69,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                     type_vars.extend(self.search_type_var(typ));
                     gtypes.push(self.translate_type(typ).unwrap());
                 } 
-                let args:Vec<_> = gtypes.iter().map(|t| t.typ.clone()).collect();
+                let args:Vec<_> = gtypes.iter().map(|t| t.typ()).collect();
                
                 let sym = self.simple_symbol(ctor_name.as_str());
                 let field = if names.len() == 0 {
@@ -73,9 +80,24 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 fields.push(field);
             }
             let var_type = self.type_cache.variant(fields);
-            ret_type_info.add_type(k.as_str(), var_type);
+            let mut qual_type_name = module.name.clone();
+            qual_type_name.push('.');
+            qual_type_name.push_str(k.as_str());
+            let mut g_type_vars:Vec<Generic<Symbol>> = vec![];
+            for var in type_vars.iter() {
+                let sym = self.simple_symbol(var.as_str());
+                g_type_vars.push(Generic::new(sym, Kind::typ()) );
+            }
+            let type_info = TypeInfo { 
+                qual_type_name, 
+                type_name:k.to_string(),
+                gluon_type:var_type, 
+                type_str_vars:type_vars,
+                type_vars:g_type_vars
+            };
+            self.type_env.add_type_info(type_info);
         }
-        ret_type_info
+        
     }
 
     fn search_type_var(&self,typ:&Type<()>) -> Vec<String> {
