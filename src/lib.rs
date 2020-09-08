@@ -137,12 +137,12 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-        //type Bool = | True | False
-        let b = if True then 222 else 111
-        b
+        type Bool = | True | False
+        let b = False
+        { b }
     "#;
     //add_extern_module(&vm, "log_message", load_int);
-    vm.get_database_mut().set_implicit_prelude(true);
+    vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
     
     vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;

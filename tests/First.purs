@@ -1,19 +1,13 @@
 module Main (main) where
 
 --foreign import log_int::Int -> Int
-
 foreign import prim_int_add_::Int -> Int -> Int
 infixl 6 prim_int_add_ as +
 
 
-data Bool = True | False
-
-constF ::Bool
-constF = True
-
 --注释comment aaa
 main::Int
-main = 1111
+main = if true then 1 else 2
 
 
 --std_int_prim.wrapping_add 667 114514

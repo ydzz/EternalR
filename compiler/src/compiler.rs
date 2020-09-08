@@ -1,15 +1,15 @@
 use std::io::Read;
-use crate::grabtypes::TypInfoEnv;
+use crate::grabtypes::{TypInfoEnv,TypeInfo};
 use crate::translate::{Translate};
 use ast::{from_reader};
 use ast::types::Module;
 use gluon::vm::core::{Allocator};
 use std::sync::Arc;
-use gluon::base::types::{ArcType};
+use gluon::base::types::{ArcType,TypeCache,Field,Type};
 use gluon::vm::core::Expr;
 use gluon::vm::thread::Thread;
 use gluon::ThreadExt;
-use gluon::base::symbol::{Symbols,SymbolModule};
+use gluon::base::symbol::{Symbols,SymbolModule,Symbol};
 use gluon::base::source::{FileMap};
 use gluon::vm::compiler::{Compiler as VMCompiler,CompiledModule};
 
@@ -23,11 +23,14 @@ impl Compiler {
     }
 
     pub fn compile<R>(&self,corefn:&str,externs:R,thread:&Thread) where R:Read {
+        let type_cahce =  thread.global_env().type_cache();
+        self.buildin_prim(type_cahce);
+
         let alloc = Arc::new(Allocator::new());
         let externs_file = from_reader(externs);
         let db = &mut thread.get_database();
         let compiler = thread.module_compiler(db);
-        let trans = Translate::new(&alloc, thread.global_env().type_cache(),self.type_env.clone());
+        let trans = Translate::new(&alloc,type_cahce,self.type_env.clone());
 
         //core expr
         let mut ast_module:Module = serde_json::from_str(corefn).unwrap();
@@ -46,6 +49,27 @@ impl Compiler {
         let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(vm_expr).unwrap();
 
         dbg!(compiled_module);
+    }
+
+
+    fn buildin_prim(&self,type_cache:&TypeCache<Symbol,ArcType>) {
+        let mut symbols = Symbols::new();
+        let true_sym = symbols.simple_symbol("True");
+        let false_sym = symbols.simple_symbol("False");
+        let bool_sym = symbols.simple_symbol("Bool");
+        let true_field = Field::new(true_sym, type_cache.opaque());
+        let false_field = Field::new(false_sym, type_cache.opaque());
+        let bool_var = type_cache.variant(vec![true_field,false_field]);
+        let alias = Type::alias(bool_sym, vec![], bool_var.clone());
+
+        self.type_env.add_type_info(TypeInfo {
+            qual_type_name:"prim.Bool".to_string(),
+            type_name:"Bool".to_string(),
+            gluon_type:alias,
+            gluon_type2:Some(bool_var),
+            type_str_vars:vec![],
+            type_vars:vec![]
+        });
     }
 }
 

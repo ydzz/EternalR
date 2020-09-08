@@ -16,6 +16,7 @@ use std::sync::Arc;
 use gluon::query::{AsyncCompilation};
 use crate::grabtypes::TypInfoEnv;
 
+
 pub struct Translate<'vm,'alloc>{
    pub alloc:&'alloc Allocator<'alloc>,
    pub type_cache:&'vm TypeCache<Symbol,ArcType>,
@@ -214,6 +215,9 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 dbg!(&match_expr);
                 Ok(TExprInfo::new(match_expr, typ.typ()))
             },
+            Expr::Case(ann,exprs,cases) => {
+                todo!()
+            },
             expr => { dbg!(expr); todo!() } 
         }
     }
@@ -251,7 +255,11 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 },alloc_expr,byte_pos.start());
                 Ok(data)
             },
-            Literal::BooleanLiteral(_) => unimplemented!()
+            Literal::BooleanLiteral(b) => {
+                let type_ident = self.type_env.bool_constructor(*b);
+                let data = VMExpr::Data(type_ident,&[],byte_pos.start());
+                Ok(data)
+            }
         }
     }
 
@@ -294,6 +302,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                           "Array"  => Ok(TTypeInfo::new(self.type_cache.array_builtin())),
                           "Record" => Err(TransferType::PartialRecord(type_name.to_string())),
                           "Function" => Err(TransferType::Function),
+                          "Boolean" => {
+                             let bool_type = self.type_env.get_bool_type().gluon_type.clone();
+                             Ok(TTypeInfo::new(bool_type))
+                          }
                           _ => Ok(TTypeInfo::new(Type::ident(KindedIdent::new(Symbol::from(type_name)))))
                         }
                     },

@@ -6,17 +6,38 @@ use std::cell::RefCell;
 use gluon::base::symbol::Symbol;
 use gluon::base::types::{Field,ArcType,Generic};
 use gluon::base::kind::Kind;
-
+use gluon::base::types::TypeExt;
+use std::sync::Arc;
+use gluon::base::types::{Type as VMType};
+use gluon::base::ast::{TypedIdent};
 #[derive(Default)]
 pub struct TypInfoEnv {
-   pub type_dic: RefCell<HashMap<String,TypeInfo>>
+   pub type_dic: RefCell<HashMap<String, Arc<TypeInfo>>>
 }
 
 impl TypInfoEnv {
     pub fn add_type_info(&self,type_info:TypeInfo) {
-        self.type_dic.borrow_mut().insert(type_info.qual_type_name.clone(), type_info);
+        self.type_dic.borrow_mut().insert(type_info.qual_type_name.clone(), Arc::new(type_info));
     }
-  
+    
+    pub fn get_bool_type(&self) -> Arc<TypeInfo> {
+        self.type_dic.borrow().get("prim.Bool").unwrap().clone()
+    }
+
+    pub fn bool_constructor(&self,b:bool) -> TypedIdent<Symbol> {
+       let type_info = self.get_bool_type();
+       let  bool_type = type_info.gluon_type2.as_ref().unwrap().clone();
+       match *bool_type {
+           VMType::Variant(ref variants) => {
+               let sym_name = variants.row_iter().nth(b as usize).unwrap().name.clone();
+               TypedIdent {
+                   name:sym_name,
+                   typ:bool_type.clone()
+               }
+           },
+           _ => panic!()
+       }
+    }
 }
 
 #[derive(Debug)]
@@ -24,6 +45,7 @@ pub struct TypeInfo {
     pub qual_type_name:String,
     pub type_name:String,
     pub  gluon_type:ArcType,
+    pub  gluon_type2:Option<ArcType>,
     pub type_str_vars:Vec<String>,
     pub type_vars:Vec<Generic<Symbol>>
 }
@@ -91,7 +113,8 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             let type_info = TypeInfo { 
                 qual_type_name, 
                 type_name:k.to_string(),
-                gluon_type:var_type, 
+                gluon_type:var_type,
+                gluon_type2:None,
                 type_str_vars:type_vars,
                 type_vars:g_type_vars
             };
