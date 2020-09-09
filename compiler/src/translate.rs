@@ -8,7 +8,7 @@ use gluon::vm::core::{Expr as VMExpr,Closure,Literal as VMLiteral,LetBinding};
 use std::cell::RefCell;
 use gluon::base::pos::{Span,ByteIndex};
 use ast::{ExternsFile};
-use ast::types::{self,Module,Type as AstType,Literal,Expr,Bind,Ident,Ann};
+use ast::types::{self,Module,Type as AstType,Literal,Expr,Bind,Ident,Ann,Binder};
 use crate::errors::TranslateError;
 use gluon::ModuleCompiler;
 use crate::utils::*;
@@ -216,17 +216,64 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 Ok(TExprInfo::new(match_expr, typ.typ()))
             },
             Expr::Case(ann,exprs,cases) => {
-                todo!()
+                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
+                let mut pred = self.translate_expr(&exprs[0],"")?;
+                let pred_expr = self.alloc.arena.alloc(pred.take_expr());
+                let mut alt_arr:Vec<Alternative> = vec![];
+                for case_item in cases {
+                   let binder = &case_item.binders[0];
+                   let pattern:Pattern;
+                   match binder {
+                    Binder::LiteralBinder(_,lit) => {
+                       pattern = self.translate_literal_binder(lit)?;
+                    },
+                    Binder::NullBinder(_) => {
+                        pattern = Pattern::Ident(TypedIdent::new(self.simple_symbol("")));
+                    },
+                     b => { dbg!(b);todo!()} 
+                   }
+                   let res_expr = self.translate_expr(case_item.result.as_ref().unwrap_err(), "")?.take_expr();
+                   let res_expr_ref = self.alloc.arena.alloc(res_expr);
+                   let alt = Alternative {
+                    pattern,
+                    expr:res_expr_ref
+                   };
+                   alt_arr.push(alt);
+                }
+                let alt_arr_ref = self.alloc.alternative_arena.alloc_fixed(alt_arr);
+                let match_expr = VMExpr::Match(pred_expr,alt_arr_ref);
+                Ok(TExprInfo::new(match_expr, typ.typ()))
             },
             expr => { dbg!(expr); todo!() } 
+        }
+    }
+
+    fn translate_literal_binder(&self,lit:&Literal<Box<Binder<Ann>>>) -> Result<Pattern,TranslateError> {
+        match lit {
+            Literal::NumericLiteral(enumber) => {
+                match enumber {
+                    Ok(inum) => Ok(Pattern::Literal(VMLiteral::Int(*inum as i64))),
+                    Err(fnum) => {
+                        let val =  ordered_float::NotNan::new(*fnum).map_err(|_| TranslateError::TranslateNotNanFloat)?;
+                        Ok(Pattern::Literal(VMLiteral::Float(val)))
+                    },
+                }
+            },
+            Literal::CharLiteral(chr) => Ok(Pattern::Literal(VMLiteral::Char(*chr))),
+            Literal::StringLiteral(str) => Ok(Pattern::Literal(VMLiteral::String(Box::from(&str[..])))),
+            Literal::BooleanLiteral(b) => {
+                let bool_var = self.type_env.bool_constructor(*b);
+                Ok(Pattern::Constructor(bool_var,vec![]))
+            }
+            _ => todo!()
         }
     }
 
     fn translate_literal(&self,lit:&Literal<Box<Expr<Ann>>>,ann:&Ann,typ:ArcType) -> Result<VMExpr<'alloc>,TranslateError> {
         let byte_pos = source_span_to_byte_span(&ann.0);
         match lit {
-            Literal::NumericLiteral(rnum) => {
-                match rnum {
+            Literal::NumericLiteral(enumber) => {
+                match enumber {
                     Ok(inum) => Ok(VMExpr::Const(VMLiteral::Int(*inum as i64),byte_pos)) ,
                     Err(fnum) => {
                         let val =  ordered_float::NotNan::new(*fnum).map_err(|_| TranslateError::TranslateNotNanFloat)?;

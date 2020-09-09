@@ -1,13 +1,13 @@
-module Main (main) where
+module Main where
 
 --foreign import log_int::Int -> Int
 foreign import prim_int_add_::Int -> Int -> Int
 infixl 6 prim_int_add_ as +
 
 
---注释comment aaa
-main::Int
-main = if true then 1 else 2
+class Default a where
+    def::a
+    def2::Int -> a
 
 
 --std_int_prim.wrapping_add 667 114514

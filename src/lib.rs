@@ -137,16 +137,21 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-        type Bool = | True | False
-        let b = False
-        { b }
+        type Default a = {
+            def:a
+        }
+        let intDef :Default Int = 
+            let def = 0
+            {def}
+        let num:Int = def
+        num
     "#;
     //add_extern_module(&vm, "log_message", load_int);
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
     
-    vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;
-    //dbg!(val);
+    let val = vm.run_expr::<i32>("Fuck", script).unwrap().0;
+    dbg!(val);
     //println!("gluon: {}",val);
     //let mut f:FunctionRef<fn(i32,i32) -> i32>  = vm.get_global("fuck.const").unwrap();
     //let nn = f.call(1i32,2i32);

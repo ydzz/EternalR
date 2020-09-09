@@ -48,8 +48,31 @@ impl Compiler {
         let mut compiler = VMCompiler::new(&env,&vm_state,sym_modules,&source,"test".into(),true);
         let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(vm_expr).unwrap();
 
-        dbg!(compiled_module);
+
+        use gluon::base::metadata::{Metadata};
+        let metadata = Arc::new(Metadata::default());
+        use gluon::compiler_pipeline::{CompileValue,};
+        use gluon::compiler_pipeline::Executable;
+        let compile_value:CompileValue<()> = CompileValue {
+            expr:(),
+            core_expr:gluon::vm::core::interpreter::Global {
+                        value: gluon::vm::core::freeze_expr( &alloc, vm_expr),
+                        info: Default::default(),
+                        },
+            typ:_typ.clone(),
+            metadata:metadata.clone(),
+            module:compiled_module
+        };
+
+        let val = futures::executor::block_on( 
+            compile_value.run_expr(
+                &mut thread.clone().module_compiler(&mut thread.get_database()),thread.clone(),"","",()
+            )
+        ).unwrap();
+        dbg!(&val.value);
     }
+
+   
 
 
     fn buildin_prim(&self,type_cache:&TypeCache<Symbol,ArcType>) {
@@ -79,5 +102,7 @@ fn test_compile() {
     let externs = std::fs::File::open("../tests/output/Main/externs.cbor").unwrap();
     let compiler = Compiler::new();
     let thread = gluon::new_vm();
-    compiler.compile(source.as_str(), externs, &thread);
+    let compiled_module = compiler.compile(source.as_str(), externs, &thread);
+
+    
 }

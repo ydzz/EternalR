@@ -397,14 +397,14 @@ fn case_alternative_from_value(val:&serde_json::Value) -> Option<CaseAlternative
            (guard_expr,expression)
         }).collect();
         Some(CaseAlternative {
-            alternative_binders:binders,
-            alternative_result:Ok(gexprs)
+            binders:binders,
+            result:Ok(gexprs)
         })
     } else {
         let expression = expr_from_value(val.get("expression")?)?;
         Some(CaseAlternative {
-            alternative_binders:binders,
-            alternative_result:Err(expression)
+            binders:binders,
+            result:Err(expression)
         })
     }
 }
