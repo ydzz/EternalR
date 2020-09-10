@@ -1,15 +1,13 @@
-module Main where
+module Main(main) where
 
 --foreign import log_int::Int -> Int
 foreign import prim_int_add_::Int -> Int -> Int
 infixl 6 prim_int_add_ as +
 
-
-class Default a where
-    def::a
-    def2::Int -> a
-
-
+class Show a where
+    show::a -> String
+main::Int
+main = 111
 --std_int_prim.wrapping_add 667 114514
 
 {-

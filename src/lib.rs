@@ -138,13 +138,12 @@ fn test_gluon() {
     let vm = new_vm();
     let script = r#"
         type Default a = {
-            def:a
+            def:Int -> a
         }
         let intDef :Default Int = 
-            let def = 0
+            let def n = 123
             {def}
-        let num:Int = def
-        num
+        intDef.def 0
     "#;
     //add_extern_module(&vm, "log_message", load_int);
     vm.get_database_mut().set_implicit_prelude(false);

@@ -1,5 +1,5 @@
 use ast::types::Module;
-use ast::types::{self,Bind,Expr,Ann,Type};
+use ast::types::{self,Bind,Expr,Ann,Type,Meta,Ident};
 use crate::translate::{Translate,TTypeInfo};
 use std::collections::HashMap;
 use std::cell::RefCell;
@@ -70,7 +70,19 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                             let list = cache_map.get_mut(&type_name).unwrap();
                             list.push((ctor_name.to_string(),ident_strs,types));
                             ()
-                        },  
+                        }, 
+                        Expr::Abs(ann,_,expr) => {
+                            match &ann.1 {
+                                Some(Meta::IsTypeClassConstructor) => {
+                                   self.grab_type_class(&ann,&expr,&ident);
+                                },
+                                _ => ()
+                            }
+                            
+                        },
+                        Expr::App(_,a,b) => {
+
+                        },
                        e => {
                            new_decls.push(Bind::NonRec(ann,ident,Box::new(e)));
                        }
@@ -136,7 +148,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             }
             _ => ()
         }
-       
         vars
+    }
+
+    fn grab_type_class(&self,ann:&Ann,expr:&Expr<Ann>,ident:&Ident) {
+
     }
 }

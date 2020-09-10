@@ -126,7 +126,8 @@ impl Into<ExternsDeclaration> for Value {
         let e_num:i32 = from_value( array.remove(0)).unwrap();
         match e_num {
             0 => {
-                todo!()
+                eprintln!("todo ExternsDeclaration");
+                ExternsDeclaration::EDType()
             },
             3 => {
                 let mut id_arr:Vec<Value> = from_value(array.remove(0)).unwrap();
@@ -137,7 +138,10 @@ impl Into<ExternsDeclaration> for Value {
                     value_type
                 }
             },
-            _ => todo!()
+            _ => {
+                eprintln!("todo ExternsDeclaration");
+                ExternsDeclaration::EDType()
+            }
         }
     }
 }
@@ -152,7 +156,11 @@ impl Into<SourceType> for Value {
                 let qual_name:Qualified<ProperName> = array.remove(0).into();
                 types::Type::TypeConstructor(ann,qual_name)
             },
-            e_num => {  panic!("todo type {}",e_num)}
+            e_num => { 
+                let ann:SourceAnn = array.remove(0).into();
+                eprintln!("todo type {}",e_num); 
+                types::Type::TUnknown(ann,2)
+            }
         }
     }
 }
