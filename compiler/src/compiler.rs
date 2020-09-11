@@ -103,6 +103,5 @@ fn test_compile() {
     let compiler = Compiler::new();
     let thread = gluon::new_vm();
     let compiled_module = compiler.compile(source.as_str(), externs, &thread);
-
-    
 }
+

@@ -6,6 +6,13 @@ infixl 6 prim_int_add_ as +
 
 class Show a where
     show::a -> String
+    self::a
+
+{-
+instance showInt :: Show Int where
+    show i = "123"
+    self = 111
+-}
 main::Int
 main = 111
 --std_int_prim.wrapping_add 667 114514

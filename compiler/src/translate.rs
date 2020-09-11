@@ -132,6 +132,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             Expr::Abs(ann,ident,expr) => {
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let arg_name = ident.as_str().unwrap();
+              
                 let mut args:Vec<TypedIdent> = vec![TypedIdent::new2(self.symbols.borrow_mut().simple_symbol(arg_name), typ.args[0].clone())];
                let mut arg_idx = 1;
                 let mut cur_expr:&Expr<Ann> = expr;
@@ -158,7 +159,9 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                     args,
                     expr:self.alloc.arena.alloc(expr_body.take_expr()),  
                 };
+                dbg!(&typ2);
                 let tinfo = TExprInfo::new_closure(typ2,vec![closure]);
+                
                 Ok(tinfo)
             }
             Expr::App(ann,a,b) => {
@@ -272,7 +275,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         }
     }
 
-    fn translate_literal(&self,lit:&Literal<Box<Expr<Ann>>>,ann:&Ann,typ:ArcType) -> Result<VMExpr<'alloc>,TranslateError> {
+    pub fn translate_literal(&self,lit:&Literal<Box<Expr<Ann>>>,ann:&Ann,typ:ArcType) -> Result<VMExpr<'alloc>,TranslateError> {
         let byte_pos = source_span_to_byte_span(&ann.0);
         match lit {
             Literal::NumericLiteral(enumber) => {
@@ -438,11 +441,11 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                let generic =  Generic::new(self.simple_symbol(var.as_str()), Kind::typ());
                Ok( TTypeInfo::new(Type::generic(generic)))
             },
-            _ =>  Ok(TTypeInfo::new(self.type_cache.hole()))
+            _ => panic!("translate type error")// Ok(TTypeInfo::new(self.type_cache.hole()))
         }
     }
 
-   fn flat_app_type<T>(&self,typ:&AstType<T>) -> Vec<Result<TTypeInfo,TransferType>> {
+    pub(crate) fn flat_app_type<T>(&self,typ:&AstType<T>) -> Vec<Result<TTypeInfo,TransferType>> {
        let mut cur_type = typ;
        let mut list:Vec<Result<TTypeInfo,TransferType>> = vec![];
        loop { 

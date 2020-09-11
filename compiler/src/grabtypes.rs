@@ -1,6 +1,6 @@
 use ast::types::Module;
-use ast::types::{self,Bind,Expr,Ann,Type,Meta,Ident};
-use crate::translate::{Translate,TTypeInfo};
+use ast::types::{self,Bind,Expr,Ann,Type,Meta,Ident,Literal};
+use crate::translate::{Translate,TransferType,TTypeInfo};
 use std::collections::HashMap;
 use std::cell::RefCell;
 use gluon::base::symbol::Symbol;
@@ -57,7 +57,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         
         for decl in module.decls.drain(0..) {
             match decl {
-                Bind::NonRec(ann,ident,expr) => {
+                Bind::NonRec(bind_ann,ident,expr) => {
                     let take_expr:Expr<Ann> = *expr;
                     match take_expr {
                         Expr::Constructor(_,p0,p1,idents,types) => {
@@ -71,20 +71,23 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                             list.push((ctor_name.to_string(),ident_strs,types));
                             ()
                         }, 
-                        Expr::Abs(ann,_,expr) => {
+                        Expr::Abs(ann,id,expr) => {
                             match &ann.1 {
                                 Some(Meta::IsTypeClassConstructor) => {
-                                   self.grab_type_class(&ann,&expr,&ident);
+                                   self.grab_type_class(&bind_ann,&expr,&ident);
                                 },
-                                _ => ()
+                                _ => {
+                                    let bexpr = Box::new(Expr::Abs(ann,id,expr));
+                                    new_decls.push(Bind::NonRec(bind_ann,ident,bexpr));
+                                }
                             }
-                            
                         },
-                        Expr::App(_,a,b) => {
-
+                        Expr::App(ann,a,b) => {
+                            let bexpr = Box::new(Expr::App(ann,a,b));
+                            new_decls.push(Bind::NonRec(bind_ann,ident,bexpr));
                         },
                        e => {
-                           new_decls.push(Bind::NonRec(ann,ident,Box::new(e)));
+                           new_decls.push(Bind::NonRec(bind_ann,ident,Box::new(e)));
                        }
                     }
                 }
@@ -151,7 +154,82 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         vars
     }
 
-    fn grab_type_class(&self,ann:&Ann,expr:&Expr<Ann>,ident:&Ident) {
+    fn grab_type_class(&self,ann:&Ann,expr:&Expr<Ann>,_:&Ident) {
+        let ann_type = ann.2.as_ref().unwrap();
+        let ann_type_var:Vec<String> = match ann_type {
+            Type::TypeVar(_,strings) => strings.split(",").map(|s| s.to_string()).collect(),
+            _ => panic!("typeclass need type var")
+        };
 
+        let typ = self.find_type_class_type(expr);
+        //dbg!(typ);
+        //dbg!(ann_type_var);
+        //insert type info
+    }
+
+    fn find_type_class_type(&self,expr:&Expr<Ann>) -> VMType<Symbol> {
+        let mut cur_expr = expr;
+        let mut fields:Vec<Field<Symbol>> = vec![];
+        loop {
+            match cur_expr {
+                Expr::Abs(_,_,abs) => {
+                    cur_expr = abs;
+                },
+                Expr::Literal(_,lit) => {
+                    match lit {
+                        Literal::ObjectLiteral(vec) => {
+                            for (field_name,filed_expr) in vec {
+                                let expr_ref:&Expr<Ann> = filed_expr;
+                                match expr_ref {
+                                    Expr::Var(ann,_) => {
+                                        let field:Field<Symbol> = self.type_class_member_to_field(field_name.as_str(),&ann.2.as_ref().unwrap());
+                                        fields.push(field);
+                                    },
+                                    _ => panic!()
+                                }
+                            }
+                        },
+                        _ => panic!()
+                    }
+                    break;
+                }
+                _ => panic!()
+            }
+        }
+     
+        let row =  VMType::extend_row(fields, self.type_cache.empty_row.clone());
+        let record = VMType::Record(row);
+        record
+    }
+
+    fn type_class_member_to_field(&self,name:&str,typ:&Type<()>) -> Field<Symbol> {
+        let type_apps = self.flat_app_type(typ);
+        let mut types = vec![];
+        for  typ in type_apps {
+            match typ {
+                Err(TransferType::FunctionCtor(ft)) => {
+                    types.push(ft);
+                },
+                Err(_) => panic!(),
+                Ok(ty) => {
+                    types.push(ty.typ());
+                }
+            }
+        }
+        //dbg!(&types);
+        let sym = self.simple_symbol(name);
+        if types.len() == 1 {
+            Field {
+                typ:types.remove(0),
+                name:sym
+            }
+        } else {
+            let last = types.pop().unwrap();
+            let func = self.type_cache.function(types, last);
+            Field {
+                typ:func,
+                name:sym
+            }
+        }
     }
 }
