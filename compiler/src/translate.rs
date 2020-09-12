@@ -48,6 +48,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
     }
 
     fn translate_bind_item(&self,bind:&Bind<Ann>) -> Result<(LetBinding<'alloc>,ArcType),TranslateError> {
+        
         match bind {
             Bind::NonRec(ann,id,expr) => {
                 let id_name = self.id2str(id)?;
@@ -130,6 +131,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 
             },
             Expr::Abs(ann,ident,expr) => {
+                if let Some(types::Meta::IsTypeClassMember)  = &ann.1 {
+                    todo!()
+                }
+               
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let arg_name = ident.as_str().unwrap();
               

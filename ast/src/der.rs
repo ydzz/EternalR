@@ -189,6 +189,7 @@ impl<'a> Visitor<'a> for MetaVisitor {
                         "IsTypeClassConstructor" => meta_type = Meta::IsTypeClassConstructor,
                         "IsWhere" => meta_type = Meta::IsWhere,
                         "IsConstructor" => is_constructor = true,
+                        "IsTypeClassMember" => meta_type = Meta::IsTypeClassMember,
                         _ => ()
                     }
                 },
@@ -451,6 +452,7 @@ fn meta_from_value(val:&serde_json::Value) -> Option<Meta> {
          "IsNewtype" => Some(Meta::IsNewtype),
          "IsTypeClassConstructor" => Some(Meta::IsTypeClassConstructor),
          "IsWhere" => Some(Meta::IsWhere),
+         "IsTypeClassMember" => Some(Meta::IsTypeClassMember),
          "IsConstructor" => {
              let identifiers = val_object.get("identifiers")?.as_array()?;
              let idents:Vec<Ident> = identifiers.iter().map(|id| Ident::Ident(id.as_str().unwrap().to_string())).collect();

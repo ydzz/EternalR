@@ -72,7 +72,8 @@ pub enum Meta {
   IsNewtype,
   IsTypeClassConstructor,
   IsForeign,
-  IsWhere
+  IsWhere,
+  IsTypeClassMember
 }
 
 #[derive(Debug)]

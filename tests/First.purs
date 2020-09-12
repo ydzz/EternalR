@@ -7,8 +7,7 @@ infixl 6 prim_int_add_ as +
 class Show a b c where
     show::a -> b -> c -> String
 
-instance showInt :: Show Int Int Int where
-    show i a c = "123"
+
 
 
 
@@ -17,6 +16,9 @@ main = 111
 --std_int_prim.wrapping_add 667 114514
 
 {-
+instance showInt :: Show Int Int Int where
+    show i a c = "123"
+
 constRecord :: { varA :: Int, varB :: String,varC::{a::Int } }
 constRecord = {varA : 1,varB : "a",varC: {a: 2 } }
 
