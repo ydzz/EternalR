@@ -540,8 +540,8 @@ fn ann_type_from_value(val:&serde_json::Value) -> Option<Type<()>> {
                 4 => {
                     let str = arr[0].as_str()?.to_string();
                     let ty =  ann_type_from_value(&arr[1])?;
-                    let ty2 =  ann_type_from_value(&arr[1])?;
-                    let e = arr[2].as_i64().map(|n| n as i32);
+                    let ty2 =  ann_type_from_value(&arr[2])?;
+                    let e = arr[3].as_i64().map(|n| n as i32);
                     Some(Type::ForAll((),str,Some(Box::new(ty)),Box::new(ty2),e))
                 },
                 _ => None

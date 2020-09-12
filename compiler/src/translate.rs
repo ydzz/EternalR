@@ -377,6 +377,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             },
             AstType::TypeApp(_,_,tb) => {
                 let app_list = self.flat_app_type(typ);
+                //dbg!(&app_list);
                 match &app_list[0] {
                     Err(ref trans_type) => {
                         match trans_type {
@@ -441,6 +442,14 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                let generic =  Generic::new(self.simple_symbol(var.as_str()), Kind::typ());
                Ok( TTypeInfo::new(Type::generic(generic)))
             },
+            AstType::ForAll(_,_,_,_,_) => {
+                self.flat_forall(typ);
+                
+                todo!()
+            },
+            AstType::ConstrainedType(_,_constraint,expr) => {
+                todo!()
+            },
             _ => panic!("translate type error")// Ok(TTypeInfo::new(self.type_cache.hole()))
         }
     }
@@ -463,7 +472,26 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         list
    }
 
-    
+    pub fn flat_forall<T>(&self,typ:&AstType<T>) {
+        let mut names:Vec<String> = vec![];
+        let mut cur_type = typ;
+        loop {
+            match cur_type {
+                AstType::ForAll(_,name,_,next,_) => {
+                    names.push(name.to_owned());
+                    cur_type = next;
+                },
+                t => {
+                    cur_type = t;
+                    break;
+                }
+            }
+        }
+
+        dbg!(names);
+        let vm_type  = self.translate_type(cur_type);
+        dbg!(vm_type);
+    }
 
     fn id2str<'a>(&self,id:&'a Ident) -> Result<&'a str,TranslateError> {
         match id.as_str() {

@@ -144,8 +144,8 @@ fn test_gluon() {
         let intDef :Default Int = 
             let def n = 123
             {def}
-        let def dict = dict.def 
-        (def intDef) 11
+        let defFunc dict:forall a.Default a -> (Int -> a) = dict.def 
+        (defFunc intDef) 11
     "#;
     //add_extern_module(&vm, "log_message", load_int);
     vm.get_database_mut().set_implicit_prelude(false);
