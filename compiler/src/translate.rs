@@ -132,9 +132,9 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             },
             Expr::Abs(ann,ident,expr) => {
                 if let Some(types::Meta::IsTypeClassMember)  = &ann.1 {
-                    todo!()
+                   let type_class_name = self.id2str(ident)?;
+                   return self.gen_typeclass_member(bind_name,type_class_name,ann,expr);
                 }
-               
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let arg_name = ident.as_str().unwrap();
               
@@ -498,7 +498,17 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         dbg!(vm_type);
     }
 
-    fn id2str<'a>(&self,id:&'a Ident) -> Result<&'a str,TranslateError> {
+    fn gen_typeclass_member(&self,name:&str,typeclass_name:&str,ann:&Ann,expr:&Expr<Ann>) -> Result<TExprInfo<'alloc>,TranslateError> {
+        //let flat_apps = self.flat_app_type(ann.2.as_ref().unwrap());
+        //dbg!(flat_apps);
+        let func_name_sym = self.simple_symbol(name);
+        let typeclass_info = self.type_env.type_dic.borrow().get(typeclass_name).unwrap().clone();
+        dbg!(typeclass_info);
+        dbg!(func_name_sym);
+        todo!()
+    }
+
+    pub fn id2str<'a>(&self,id:&'a Ident) -> Result<&'a str,TranslateError> {
         match id.as_str() {
             Some(s) => Ok(s),
             None => Err(TranslateError::IdentToString)
@@ -507,7 +517,8 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
 
     fn replace_prim_name(func_name:&str) -> String {
         match func_name {
-            "prim_int_add_" => "#Int+".into(),
+            "__prim_int_add" => "#Int+".into(),
+            "__prim_int_sub" => "#Int-".into(),
             _ => func_name.into()
         }
     }

@@ -74,7 +74,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                         Expr::Abs(ann,id,expr) => {
                             match &ann.1 {
                                 Some(Meta::IsTypeClassConstructor) => {
-                                   self.grab_type_class(&bind_ann,&expr,&ident);
+                                   self.grab_type_class(&bind_ann,&expr,&ident,module.name.clone());
                                 },
                                 _ => {
                                     let bexpr = Box::new(Expr::Abs(ann,id,expr));
@@ -154,7 +154,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         vars
     }
 
-    fn grab_type_class(&self,ann:&Ann,expr:&Expr<Ann>,_:&Ident) {
+    fn grab_type_class(&self,ann:&Ann,expr:&Expr<Ann>,ident:&Ident,mut module_name: String) {
         let ann_type = ann.2.as_ref().unwrap();
         let ann_type_var:Vec<String> = match ann_type {
             Type::TypeVar(_,strings) => strings.split(",").map(|s| s.to_string()).collect(),
@@ -162,9 +162,27 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         };
 
         let typ = self.find_type_class_type(expr);
-        //dbg!(typ);
-        //dbg!(ann_type_var);
-        //insert type info
+        let id_name = self.id2str(ident).unwrap();
+        module_name.push('.');
+        module_name.push_str(id_name);
+        let sym_name = self.simple_symbol(module_name.as_str());
+        let mut g_type_vars:Vec<Generic<Symbol>> = vec![];
+        for var in ann_type_var.iter() {
+            let sym = self.simple_symbol(var.as_str());
+            g_type_vars.push(Generic::new(sym, Kind::typ()) );
+        }
+        let arctyp:ArcType = typ.into();
+        let vm_type:ArcType = VMType::alias(sym_name,g_type_vars.clone(), arctyp).into();
+        let type_info = TypeInfo {
+            qual_type_name:module_name,
+            type_name:id_name.to_string(),
+            gluon_type:vm_type,
+            gluon_type2:None,
+            type_str_vars:ann_type_var,
+            type_vars:g_type_vars
+        };
+        //dbg!("add typevar {:?}",&type_info);
+        self.type_env.add_type_info(type_info);
     }
 
     fn find_type_class_type(&self,expr:&Expr<Ann>) -> VMType<Symbol> {

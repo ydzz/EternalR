@@ -1,8 +1,8 @@
 module Main(main) where
 
 --foreign import log_int::Int -> Int
-foreign import prim_int_add_::Int -> Int -> Int
-infixl 6 prim_int_add_ as +
+foreign import __prim_int_add::Int -> Int -> Int
+infixl 6 __prim_int_add as +
 
 class Show a b c where
     show::a -> b -> c -> String
