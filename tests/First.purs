@@ -4,12 +4,13 @@ module Main(main) where
 foreign import __prim_int_add::Int -> Int -> Int
 infixl 6 __prim_int_add as +
 
-class Show a b c where
-    show::a -> b -> c -> String
+class Show a where
+    show::a -> String
+    showS::a -> String
 
-
-
-
+instance showInt :: Show Int where
+    show a = "ShowInt"
+    showS a =  "ShowIntS"
 
 main::Int
 main = 111

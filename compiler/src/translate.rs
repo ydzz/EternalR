@@ -80,7 +80,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         let mut cur_expr = pre_expr;
         for ident in module.foreign.iter() {
            let ident_name = self.id2str(ident)?;
-           if ident_name.starts_with("prim_") {
+           if ident_name.starts_with("__prim_") {
                continue
            }
            let sym_name = self.simple_symbol(ident_name);
@@ -170,6 +170,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 Ok(tinfo)
             }
             Expr::App(ann,a,b) => {
+                if let Some(types::Meta::IsTypeClassConstructor)  = &ann.1 {
+                    self.gen_type_class_instance(a,b);
+                    panic!("instance typeclass");
+                 }
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let mut expr_b = self.translate_expr(b, "")?;
                 let mut args = vec![expr_b.take_expr()];
@@ -211,7 +215,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 let mut expr_info = self.translate_expr(expr, "")?;
                 let ident_expr = self.alloc.arena.alloc(expr_info.take_expr());
                 let field_sym = self.symbols.borrow_mut().simple_symbol(name.as_str());
-                dbg!(&ident_expr);
+                //dbg!(&ident_expr);
                
                 let pattern = Pattern::Record {
                     typ:expr_info.typ,
@@ -394,7 +398,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                                 Err(TransferType::FunctionCtor(arc_type))
                             },
                             TransferType::FunctionCtor(arc_type) => {
-                                dbg!(&app_list);
+                                //dbg!(&app_list);
                                 let mut flat_types:Vec<ArcType> = app_list.iter().skip(1).map(|v| {
                                     match v {
                                         Err(TransferType::FunctionCtor(at)) => at.clone(),
@@ -416,7 +420,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                             let type_name = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().type_name.clone();
                             let type_vars = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().type_vars.clone();
 
-                            let alias =  Type::alias(self.simple_symbol(type_name.as_str()), type_vars, gluon_type);
+                            let alias = Type::alias(self.simple_symbol(type_name.as_str()), type_vars, gluon_type);
                             dbg!(&alias);
                             Ok(TTypeInfo::new(alias))
                         } else {
@@ -448,12 +452,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                Ok( TTypeInfo::new(Type::generic(generic)))
             },
             AstType::ForAll(_,_,_,_,_) => {
-                self.flat_forall(typ);
-                
-                todo!()
+                self.flat_forall(typ)
             },
-            AstType::ConstrainedType(_,_constraint,expr) => {
-                todo!()
+            AstType::ConstrainedType(_,_constraint,e_type) => {
+                self.translate_type(e_type)
             },
             _ => panic!("translate type error")// Ok(TTypeInfo::new(self.type_cache.hole()))
         }
@@ -477,7 +479,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         list
    }
 
-    pub fn flat_forall<T>(&self,typ:&AstType<T>) {
+    pub(crate) fn flat_forall<T>(&self,typ:&AstType<T>) -> Result<TTypeInfo,TransferType> {
         let mut names:Vec<String> = vec![];
         let mut cur_type = typ;
         loop {
@@ -493,18 +495,51 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             }
         }
 
-        dbg!(names);
+        //dbg!(names);
         let vm_type  = self.translate_type(cur_type);
-        dbg!(vm_type);
+        //dbg!(&vm_type);
+        vm_type
     }
 
-    fn gen_typeclass_member(&self,name:&str,typeclass_name:&str,ann:&Ann,expr:&Expr<Ann>) -> Result<TExprInfo<'alloc>,TranslateError> {
-        //let flat_apps = self.flat_app_type(ann.2.as_ref().unwrap());
-        //dbg!(flat_apps);
+    fn gen_typeclass_member(&self,name:&str,typeclass_name:&str,ann:&Ann,_expr:&Expr<Ann>) -> Result<TExprInfo<'alloc>,TranslateError> {
+        let span = source_span_to_byte_span(&ann.0);
+       
         let func_name_sym = self.simple_symbol(name);
         let typeclass_info = self.type_env.type_dic.borrow().get(typeclass_name).unwrap().clone();
-        dbg!(typeclass_info);
-        dbg!(func_name_sym);
+        let class_type = typeclass_info.gluon_type.clone();
+        
+        let ret_type = self.translate_type(ann.2.as_ref().unwrap()).unwrap().typ();
+        let garr:Vec<ArcType> = typeclass_info.type_vars.clone().drain(0..).map(|g| Type::generic(g) ).collect();
+        let dict_sym = self.simple_symbol("dict");
+        let type_app:ArcType = Type::app(class_type.clone(), garr.into() );
+       
+        let func_type = self.type_cache.function(vec![type_app.clone()], ret_type);
+        let forall_type = Type::forall( typeclass_info.type_vars.clone(), func_type);
+        //match expr
+        let pattern = Pattern::Record {
+            typ:class_type.clone(),
+            fields:vec![(TypedIdent::new2(func_name_sym.clone(),type_app.clone()),None)]
+        };
+        let out_expr = VMExpr::Ident(TypedIdent::new2(func_name_sym.clone(),type_app.clone()),span);
+        let alt = Alternative { pattern, expr: self.alloc.arena.alloc(out_expr) };
+        let alt_list = self.alloc.alternative_arena.alloc_fixed(std::iter::once(alt) );
+        let arg = VMExpr::Ident(TypedIdent::new2(dict_sym.clone(), type_app.clone()),span) ;
+        let arg_ref = self.alloc.arena.alloc(arg);
+        let match_expr = VMExpr::Match(arg_ref,alt_list);
+       
+        let closure = Closure {
+            pos:span.start(),
+            name:TypedIdent::new2(func_name_sym,forall_type.clone()),
+            args:vec![TypedIdent::new2(dict_sym, type_app.clone())],
+            expr:self.alloc.arena.alloc(match_expr),  
+        };
+      
+        let tinfo = TExprInfo::new_closure(forall_type,vec![closure]);
+        Ok(tinfo)
+    }
+
+    fn gen_type_class_instance(&self,arg:&Expr<Ann>,expr:&Expr<Ann>) -> Result<TExprInfo<'alloc>,TranslateError> {
+        
         todo!()
     }
 
