@@ -133,18 +133,20 @@ pub enum Expr<A> {
 #[derive(Debug)]
 pub struct Qualified<A>(pub Option<String>,pub A);
 
-impl Qualified<ProperName> {
-  pub fn join_name(&self) -> String {
+impl<A> Qualified<A> {
+  pub fn join_name(&self,f:fn(&A) -> String) -> String {
     let mut qual:String = self.0.as_ref().map(|s| {
       let mut news = s.clone();
       news.push('.');
       news
     }  ).unwrap_or_default();
-    let proper = proper_name_as_str(&self.1);
-    qual.push_str(proper);
+    let a_str = f(&self.1);
+    qual.push_str(a_str.as_str());
     qual
   }
 }
+
+
 
 pub type Guard<A> = Expr<A>;
 

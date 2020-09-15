@@ -8,7 +8,7 @@ use gluon::vm::core::{Expr as VMExpr,Closure,Literal as VMLiteral,LetBinding};
 use std::cell::RefCell;
 use gluon::base::pos::{Span,ByteIndex};
 use ast::{ExternsFile};
-use ast::types::{self,Module,Type as AstType,Literal,Expr,Bind,Ident,Ann,Binder};
+use ast::types::{self,Module,Type as AstType,Literal,Expr,Bind,Ident,Ann,Binder,proper_name_as_str};
 use crate::errors::TranslateError;
 use gluon::ModuleCompiler;
 use crate::utils::*;
@@ -164,14 +164,14 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                     args,
                     expr:self.alloc.arena.alloc(expr_body.take_expr()),  
                 };
-                dbg!(&typ2);
+                //dbg!(&typ2);
                 let tinfo = TExprInfo::new_closure(typ2,vec![closure]);
                 
                 Ok(tinfo)
             }
             Expr::App(ann,a,b) => {
                 if let Some(types::Meta::IsTypeClassConstructor)  = &ann.1 {
-                    self.gen_type_class_instance(a,b);
+                    self.gen_type_class_instance(a,b,bind_name)?;
                     panic!("instance typeclass");
                  }
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
@@ -372,7 +372,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                         }
                     },
                      _ => {
-                        let qual_type_name = qual_proper.join_name();
+                        let qual_type_name = qual_proper.join_name(|q| proper_name_as_str(q).to_string() );
                         let var_len = self.type_env.type_dic.borrow().get(&qual_type_name).unwrap().type_vars.len();
                         let gluon_type = self.type_env.type_dic.borrow().get(&qual_type_name).unwrap().gluon_type.clone();
                         if var_len == 0 {
@@ -538,8 +538,33 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         Ok(tinfo)
     }
 
-    fn gen_type_class_instance(&self,arg:&Expr<Ann>,expr:&Expr<Ann>) -> Result<TExprInfo<'alloc>,TranslateError> {
-        
+    fn gen_type_class_instance(&self,body:&Expr<Ann>,arg:&Expr<Ann>,bind_name:&str) -> Result<TExprInfo<'alloc>,TranslateError> {
+        let mut cur_body = body;
+        let info = self.translate_expr(arg, "")?;
+        let mut teinfos:Vec<TExprInfo> = vec![info];
+        let mut typeclass_name:String = String::default();
+        loop { 
+           match cur_body {
+               Expr::App(_,body,_) => {
+                   let info = self.translate_expr(arg, "")?;
+                   teinfos.push(info);
+                   cur_body = body;
+               },
+               Expr::Var(_,qual) => {
+                 typeclass_name = qual.join_name(|id| id.as_str().unwrap().to_string() );
+                  break;
+               },
+               _ => break
+           }
+        }
+        let typeclass_type = self.type_env.type_dic.borrow().get(typeclass_name.as_str()).unwrap().clone();
+        for info in teinfos {
+            let closure_arr = info.closure;
+            let func_type = closure_arr[0].name.typ.clone();
+            let named = Named::Recursive(closure_arr);
+            dbg!(func_type);
+        }
+        dbg!(typeclass_type);
         todo!()
     }
 

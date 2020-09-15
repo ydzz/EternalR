@@ -141,9 +141,7 @@ fn test_gluon() {
             def:Int -> a,
           
         }
-        let intDef :Default Int = 
-            let def n = 123
-            {def}
+        let intDef :Default Int =  {def = (\x -> 667) }
         let defFunc dict:forall a.Default a -> (Int -> a) = dict.def 
         (defFunc intDef) 11
     "#;
