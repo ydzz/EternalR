@@ -112,10 +112,13 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 Ok(TExprInfo::new(vmexpr,typ.typ(),&ann.0))
             },
             Expr::Var(ann,qual) => {
+                let typ;
                 if ann.2.as_ref().is_none() {
-                    dbg!(&qual);
+                    typ = TTypeInfo::new(self.type_cache.hole());
+                } else {
+                    typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 }
-                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
+                 
                 let name = qual.1.as_str().unwrap();
                 let ident = TypedIdent {
                     typ:typ.typ(),

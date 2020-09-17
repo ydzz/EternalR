@@ -11,11 +11,11 @@ class Show a  where
   
 
 instance showInt :: Show Int where
-    show a = "ShowIntShow"
+    show a = "Hooooooooooooooooooooooooo!"
 
 
 main:: String
-main = 12450
+main = show 12450
 --std_int_prim.wrapping_add 667 114514
 
 {-
