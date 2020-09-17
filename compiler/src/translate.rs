@@ -15,7 +15,7 @@ use crate::utils::*;
 use std::sync::Arc;
 use gluon::query::{AsyncCompilation};
 use crate::grabtypes::TypInfoEnv;
-
+use ast::types::{SourceSpan};
 
 pub struct Translate<'vm,'alloc>{
    pub alloc:&'alloc Allocator<'alloc>,
@@ -106,9 +106,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
     pub fn translate_expr(&self,expr:&Expr<Ann>,bind_name:&str) -> Result<TExprInfo<'alloc>,TranslateError>  {
         match expr {
             Expr::Literal(ann,lit) => {
+                
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let vmexpr = self.translate_literal(lit,ann,typ.typ())?;
-                Ok(TExprInfo::new(vmexpr,typ.typ()))
+                Ok(TExprInfo::new(vmexpr,typ.typ(),&ann.0))
             },
             Expr::Var(ann,qual) => {
                 if ann.2.as_ref().is_none() {
@@ -123,10 +124,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 if name.chars().next().unwrap().is_uppercase() {
                     let data_expr = VMExpr::Data(ident,&[],source_span_to_byte_span(&ann.0).start() );
                     
-                    Ok(TExprInfo::new(data_expr, typ.typ()))
+                    Ok(TExprInfo::new(data_expr, typ.typ(),&ann.0))
                 } else {
                     let ident_expr = VMExpr::Ident(ident,source_span_to_byte_span(&ann.0));
-                    Ok(TExprInfo::new(ident_expr ,typ.typ()))
+                    Ok(TExprInfo::new(ident_expr ,typ.typ(),&ann.0))
                 }
                 
             },
@@ -165,14 +166,13 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                     expr:self.alloc.arena.alloc(expr_body.take_expr()),  
                 };
                 //dbg!(&typ2);
-                let tinfo = TExprInfo::new_closure(typ2,vec![closure]);
+                let tinfo = TExprInfo::new_closure(typ2,vec![closure],&ann.0);
                 
                 Ok(tinfo)
             }
             Expr::App(ann,a,b) => {
                 if let Some(types::Meta::IsTypeClassConstructor)  = &ann.1 {
-                    self.gen_type_class_instance(a,b,bind_name)?;
-                    panic!("instance typeclass");
+                    return self.gen_type_class_instance(a,b,bind_name);
                  }
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let mut expr_b = self.translate_expr(b, "")?;
@@ -202,10 +202,10 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                        let prim_id = TypedIdent::new2(sym, id.typ.clone());
                        let new_expr = VMExpr::Ident(prim_id, source_span_to_byte_span(&ann.0));
                        let new_ea = self.alloc.arena.alloc(new_expr);
-                       Ok(TExprInfo::new(VMExpr::Call(new_ea,eb), typ.typ()))
+                       Ok(TExprInfo::new(VMExpr::Call(new_ea,eb), typ.typ(),&ann.0))
                     },
                     _ => {
-                        Ok(TExprInfo::new(VMExpr::Call(ea,eb), typ.typ()))
+                        Ok(TExprInfo::new(VMExpr::Call(ea,eb), typ.typ(),&ann.0))
                     }
                 }
                 
@@ -228,7 +228,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 
                 let match_expr = VMExpr::Match(ident_expr,alt_list);
                 dbg!(&match_expr);
-                Ok(TExprInfo::new(match_expr, typ.typ()))
+                Ok(TExprInfo::new(match_expr, typ.typ(),&ann.0))
             },
             Expr::Case(ann,exprs,cases) => {
                 let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
@@ -257,7 +257,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 }
                 let alt_arr_ref = self.alloc.alternative_arena.alloc_fixed(alt_arr);
                 let match_expr = VMExpr::Match(pred_expr,alt_arr_ref);
-                Ok(TExprInfo::new(match_expr, typ.typ()))
+                Ok(TExprInfo::new(match_expr, typ.typ(),&ann.0))
             },
             expr => { dbg!(expr); todo!() } 
         }
@@ -534,7 +534,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             expr:self.alloc.arena.alloc(match_expr),  
         };
       
-        let tinfo = TExprInfo::new_closure(forall_type,vec![closure]);
+        let tinfo = TExprInfo::new_closure(forall_type,vec![closure],&ann.0);
         Ok(tinfo)
     }
 
@@ -543,29 +543,60 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         let info = self.translate_expr(arg, "")?;
         let mut teinfos:Vec<TExprInfo> = vec![info];
         let mut typeclass_name:String = String::default();
+        let mut types:Vec<ArcType> = vec![];
+        let mut var_ann = None;
         loop { 
            match cur_body {
-               Expr::App(_,body,_) => {
-                   let info = self.translate_expr(arg, "")?;
+               Expr::App(ann,body,_) => {
+                    let mut gen_name = bind_name.to_string();
+                    let span = source_span_to_byte_span(&ann.0);
+                    gen_name.push_str(span.start().to_string().as_str());
+                   let info = self.translate_expr(arg, gen_name.as_str())?;
                    teinfos.push(info);
                    cur_body = body;
                },
-               Expr::Var(_,qual) => {
+               Expr::TypedVar(ann,qual,tys) => {
+                var_ann = Some(ann.clone());
                  typeclass_name = qual.join_name(|id| id.as_str().unwrap().to_string() );
-                  break;
+                 for ty in tys {
+                    let tty =  self.translate_type(ty).unwrap().typ();
+                    types.push(tty);
+                 }
+                 break;
                },
                _ => break
            }
         }
         let typeclass_type = self.type_env.type_dic.borrow().get(typeclass_name.as_str()).unwrap().clone();
+        let mut field_arr = vec![];
         for info in teinfos {
             let closure_arr = info.closure;
             let func_type = closure_arr[0].name.typ.clone();
+            let closure_name = closure_arr[0].name.name.clone();
             let named = Named::Recursive(closure_arr);
-            dbg!(func_type);
+           
+            let field_id = TypedIdent::new2(closure_name, func_type);
+            let let_bind = LetBinding {
+                name:field_id.clone(),
+                expr:named,
+                span_start:ByteIndex(info.start)
+            };
+            let let_bind_ref = self.alloc.let_binding_arena.alloc(let_bind);
+            let zero_span = Span::new(BytePos(0), BytePos(0));
+            let field_id_expr = self.alloc.arena.alloc(VMExpr::Ident(field_id, zero_span));
+            let let_expr = VMExpr::Let(let_bind_ref,field_id_expr);
+            field_arr.push(let_expr);
+           
         }
-        dbg!(typeclass_type);
-        todo!()
+        let app_type = Type::app(typeclass_type.gluon_type.clone(), types.into());
+        //let bind_name_sym = self.simple_symbol(bind_name);
+        //let bind_id = TypedIdent::new2(bind_name_sym, app_type.clone());
+      
+        let data_id = TypedIdent::new2(self.simple_symbol("<record>"), typeclass_type.gluon_type2.as_ref().unwrap().clone());
+        let lets = self.alloc.arena.alloc_fixed(field_arr);
+        let data_expr = VMExpr::Data(data_id,lets,ByteIndex(0));
+        
+        Ok(TExprInfo::new(data_expr, app_type, &var_ann.as_ref().unwrap().0))
     }
 
     pub fn id2str<'a>(&self,id:&'a Ident) -> Result<&'a str,TranslateError> {
@@ -632,16 +663,21 @@ impl TTypeInfo {
 pub struct TExprInfo<'a> {
     pub typ:ArcType,
     pub expr:Option<VMExpr<'a>>,
-    pub closure:Vec<Closure<'a>>
+    pub closure:Vec<Closure<'a>>,
+    pub start:u32
 }
 
 impl<'a> TExprInfo<'a> {
-    pub fn new(expr:VMExpr<'a>,typ:ArcType) -> Self {
-        TExprInfo { expr:Some(expr),typ,closure:vec![] }
+    pub fn new(expr:VMExpr<'a>,typ:ArcType,span:&SourceSpan) -> Self {
+        let byte_span = source_span_to_byte_span(span);
+        let start :u32 = byte_span.start().0;
+        TExprInfo { expr:Some(expr),typ,closure:vec![],start }
     }
 
-    pub fn new_closure(typ:ArcType,closure:Vec<Closure<'a>>) -> Self {
-        TExprInfo { expr:None, typ,closure}
+    pub fn new_closure(typ:ArcType,closure:Vec<Closure<'a>>,span:&SourceSpan) -> Self {
+        let byte_span = source_span_to_byte_span(span);
+        let start :u32 = byte_span.start().0;
+        TExprInfo { expr:None, typ,closure,start}
     }
 
     pub fn expr(&self) -> &VMExpr<'a> {

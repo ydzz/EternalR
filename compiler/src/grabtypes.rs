@@ -172,12 +172,12 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             g_type_vars.push(Generic::new(sym, Kind::typ()) );
         }
         let arctyp:ArcType = typ.into();
-        let vm_type:ArcType = VMType::alias(sym_name,g_type_vars.clone(), arctyp).into();
+        let vm_type:ArcType = VMType::alias(sym_name,g_type_vars.clone(), arctyp.clone()).into();
         let type_info = TypeInfo {
             qual_type_name:module_name,
             type_name:id_name.to_string(),
             gluon_type:vm_type,
-            gluon_type2:None,
+            gluon_type2:Some(arctyp),
             type_str_vars:ann_type_var,
             type_vars:g_type_vars
         };

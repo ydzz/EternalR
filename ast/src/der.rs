@@ -331,7 +331,17 @@ fn expr_from_value(val:&serde_json::Value) -> Option<Expr<Ann>> {
     let ann = ann_from_value(val_object.get("annotation")?)?;
    
     match expr_type {
-        "Var" => Some(Expr::Var(ann,qualified_from_value(|s| Ident::Ident(s.to_string()),val_object.get("value")?)? )) ,
+        "Var" => Some(Expr::Var(ann,qualified_from_value(|s| Ident::Ident(s.to_string()),val_object.get("value")?)? )),
+        "TypedVar" => {
+            let qvalue = qualified_from_value(|s| Ident::Ident(s.to_string()),val_object.get("value")?)?;
+            let json_types = val_object.get("types")?.as_array()?;
+            let mut types:Vec<Type<()>> = vec![];
+            for val in json_types {
+               let typ = ann_type_from_value(val)?;
+               types.push(typ);
+            }
+            Some(Expr::TypedVar(ann,qvalue,types))
+        },
         "Literal" => {
             let literal = literal_from_value(|v|Box::new(expr_from_value(v).unwrap()),val_object.get("value")?).unwrap();
             Some(Expr::Literal(ann,literal))

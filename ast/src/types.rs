@@ -125,6 +125,7 @@ pub enum Expr<A> {
   Abs(A,Ident,Box<Expr<A>>),
   App(A,Box<Expr<A>>,Box<Expr<A>>),
   Var(A,Qualified<Ident>),
+  TypedVar(A,Qualified<Ident>,Vec<Type<()>>),
   Case(A,Vec<Expr<A>>,Vec<CaseAlternative<A>>),
   Let(A,Vec<Bind<A>>,Box<Expr<A>>)
 }
