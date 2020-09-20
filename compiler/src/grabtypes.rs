@@ -44,8 +44,8 @@ impl TypInfoEnv {
 pub struct TypeInfo {
     pub qual_type_name:String,
     pub type_name:String,
-    pub  gluon_type:ArcType,
-    pub  gluon_type2:Option<ArcType>,
+    pub gluon_type:ArcType,
+    pub gluon_type2:Option<ArcType>,
     pub type_str_vars:Vec<String>,
     pub type_vars:Vec<Generic<Symbol>>
 }

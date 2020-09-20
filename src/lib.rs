@@ -138,8 +138,8 @@ fn test_gluon() {
     let vm = new_vm();
     let script = r#"
         type Maybe a = | Just a | Nothing
-        let testFunc a:Int -> Maybe Int = Just (a #Int+ a)
-        let i = match testFunc 111 with
+        let testFunc:Maybe Int = Just 1111
+        let i = match testFunc  with
                     | Just x -> x
                     | Nothing -> 666
         i

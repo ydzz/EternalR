@@ -155,9 +155,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     name: self.simple_symbol(name),
                 };
                 if name.chars().next().unwrap().is_uppercase() {
-                    let data_expr =
-                        VMExpr::Data(ident, &[], source_span_to_byte_span(&ann.0).start());
-
+                    let data_expr = VMExpr::Data(ident, &[], source_span_to_byte_span(&ann.0).start());
                     Ok(TExprInfo::new(data_expr, typ.typ(), &ann.0))
                 } else {
                     let ident_expr = VMExpr::Ident(ident, source_span_to_byte_span(&ann.0));
@@ -213,39 +211,61 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 if let Some(types::Meta::IsTypeClassConstructor) = &ann.1 {
                     return self.gen_type_class_instance(a, b, bind_name);
                 }
-                let typ = self
-                    .translate_type(ann.2.as_ref().unwrap())
-                    .map_err(|_| TranslateError::TypeError)?;
+                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
                 let mut expr_b = self.translate_expr(b, "")?;
+                
                 let mut args = vec![expr_b.take_expr()];
                 let mut cur_arg: &Expr<Ann> = a;
-                let name_expr;
+                let ename_expr;
+                let mut func_name_type = None;
                 loop {
                     match cur_arg {
                         Expr::App(_, la, lb) => {
                             let mut arg_expr = self.translate_expr(lb, "")?;
                             args.push(arg_expr.take_expr());
                             cur_arg = la;
-                        }
+                        },
+                        Expr::Var(ann,qual) => {
+                            func_name_type = Some(self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?);
+                            let name = qual.1.as_str().unwrap_or_default();
+                            if name.chars().next().unwrap().is_uppercase() {
+                                ename_expr = Err(qual.1.as_str().unwrap_or_default());
+                            } else {
+                                let mut texpr = self.translate_expr(expr, "")?;
+                                ename_expr = Ok(texpr.take_expr());
+                            }
+                            break;
+                        },
                         expr => {
                             let mut texpr = self.translate_expr(expr, "")?;
-                            name_expr = texpr.take_expr();
+                            ename_expr = Ok(texpr.take_expr());
                             break;
                         }
                     }
                 }
-                let eb = self.alloc.arena.alloc_fixed(args.drain(0..).rev());
-                let ea = self.alloc.arena.alloc(name_expr);
-                match ea {
-                    VMExpr::Ident(id, _) if id.name.as_str().starts_with("prim_") => {
-                        let prim_name = Translate::replace_prim_name(id.name.as_str());
-                        let sym = self.symbols.borrow_mut().simple_symbol(prim_name);
-                        let prim_id = TypedIdent::new2(sym, id.typ.clone());
-                        let new_expr = VMExpr::Ident(prim_id, source_span_to_byte_span(&ann.0));
-                        let new_ea = self.alloc.arena.alloc(new_expr);
-                        Ok(TExprInfo::new(VMExpr::Call(new_ea, eb), typ.typ(), &ann.0))
+                let args = self.alloc.arena.alloc_fixed(args.drain(0..).rev());
+
+                match ename_expr {
+                    Ok(name_expr) => {
+                        let ea = self.alloc.arena.alloc(name_expr);
+                        match ea {
+                            VMExpr::Ident(id, _) if id.name.as_str().starts_with("__prim_") => {
+                                let prim_name = Translate::replace_prim_name(id.name.as_str());
+                                let sym = self.symbols.borrow_mut().simple_symbol(prim_name);
+                                let prim_id = TypedIdent::new2(sym, id.typ.clone());
+                                let new_expr = VMExpr::Ident(prim_id, source_span_to_byte_span(&ann.0));
+                                let new_ea = self.alloc.arena.alloc(new_expr);
+                                Ok(TExprInfo::new(VMExpr::Call(new_ea, args), typ.typ(), &ann.0))
+                            }
+                            _ => Ok(TExprInfo::new(VMExpr::Call(ea, args), typ.typ(), &ann.0)),
+                        }
+                    },
+                    Err(type_ctor_name) => {
+                      
+                        let ident = TypedIdent::new2(self.simple_symbol(type_ctor_name), typ.typ());
+                        let data_expr = VMExpr::Data(ident, args, source_span_to_byte_span(&ann.0).start());
+                        Ok(TExprInfo::new(data_expr, typ.typ(), &ann.0))
                     }
-                    _ => Ok(TExprInfo::new(VMExpr::Call(ea, eb), typ.typ(), &ann.0)),
                 }
             }
             Expr::Accessor(ann, name, expr) => {
