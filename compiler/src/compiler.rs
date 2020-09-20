@@ -35,7 +35,7 @@ impl Compiler {
         //core expr
         let mut ast_module:Module = serde_json::from_str(corefn).unwrap();
         let (vm_expr,_typ):(&Expr,ArcType) = trans.translate(&mut ast_module, externs_file,compiler).unwrap();
-        //dbg!(&vm_expr);
+        dbg!(&vm_expr);
         //byte module
         let mut symbols = Symbols::new();
         let sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -103,6 +103,6 @@ fn test_compile() {
     let externs = std::fs::File::open("../tests/output/Main/externs.cbor").unwrap();
     let compiler = Compiler::new();
     let thread = gluon::new_vm();
-    let compiled_module = compiler.compile(source.as_str(), externs, &thread);
+    compiler.compile(source.as_str(), externs, &thread);
 }
 

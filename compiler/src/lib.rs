@@ -21,14 +21,14 @@ fn test_first() {
    "#;
   
    
-   let mut thread = gluon::new_vm();
+   let  thread = gluon::new_vm();
    thread.get_database_mut().implicit_prelude(false);
    let l = thread.load_script("F",code_str).unwrap();
    println!("end load");
    let v:i32 = thread.get_global("F").unwrap();
    dbg!(v);
    //let mut buffer = Vec::new();
-   let mut string = String::default();
+   let  string = String::default();
    let mut buffer2 = std::fs::File::create("foo.txt").unwrap();
    let mut serializer = serde_json::Serializer::new(&mut buffer2);
    

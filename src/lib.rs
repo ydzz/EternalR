@@ -137,13 +137,12 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-        type Default a = {
-            def:Int -> a,
-          
-        }
-        let intDef :Default Int =  {def = (\x -> 667) }
-        let defFunc dict:forall a.Default a -> (Int -> a) = dict.def 
-        (defFunc intDef) 11
+        type Maybe a = | Just a | Nothing
+        let testFunc a:Int -> Maybe Int = Just (a #Int+ a)
+        let i = match testFunc 111 with
+                    | Just x -> x
+                    | Nothing -> 666
+        i
     "#;
     //add_extern_module(&vm, "log_message", load_int);
     vm.get_database_mut().set_implicit_prelude(false);

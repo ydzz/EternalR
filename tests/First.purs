@@ -4,18 +4,23 @@ module Main(main) where
 foreign import __prim_int_add::Int -> Int -> Int
 infixl 6 __prim_int_add as +
 
-
-
+{-
 class Show a  where
     show::a -> String
   
 
 instance showInt :: Show Int where
     show a = "Hooooooooooooooooooooooooo!"
-
+-}
 
 main:: String
-main = show 12450
+main = "12450"
+
+
+data Maybe a = Just a | Nothing
+
+testFunc::Maybe String
+testFunc = Just "foo"
 --std_int_prim.wrapping_add 667 114514
 
 {-

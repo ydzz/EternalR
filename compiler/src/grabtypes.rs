@@ -95,7 +95,6 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             }
         }
         module.decls = new_decls;
-
         //collect type
         for (k,item) in cache_map.iter() {
             let mut fields = vec![];
@@ -225,9 +224,6 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         let mut types = vec![];
         for  typ in type_apps {
             match typ {
-                Err(TransferType::FunctionCtor(ft)) => {
-                    types.push(ft);
-                },
                 Err(_) => panic!(),
                 Ok(ty) => {
                     types.push(ty.typ());
