@@ -137,19 +137,26 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-        type Maybe a = | Just a | Nothing
-        let testFunc:Maybe Int = Just 1111
-        let i = match testFunc  with
-                    | Just x -> x
-                    | Nothing -> 666
-        i
+       type Functor f = {
+           fmap : forall a b . (a -> b) -> f a -> f b
+       }
+       type Maybe a = | Just a | Nothing
+       let functor: Functor Maybe = {
+           fmap = \f x -> 
+              match x with
+                | Just y -> Just (f y)
+                | Nothing -> Nothing
+       }
+       
+       let val = functor.fmap (\n -> n #Int+ 1) (Just 666)
+       val
     "#;
     //add_extern_module(&vm, "log_message", load_int);
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
     
-    let val = vm.run_expr::<i32>("Fuck", script).unwrap().0;
-    dbg!(val);
+    let val = vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;
+   
     //println!("gluon: {}",val);
     //let mut f:FunctionRef<fn(i32,i32) -> i32>  = vm.get_global("fuck.const").unwrap();
     //let nn = f.call(1i32,2i32);

@@ -585,7 +585,13 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             }
             AstType::ForAll(_, _, _, _, _) => self.flat_forall(typ),
             AstType::ConstrainedType(_, _constraint, e_type) => self.translate_type(e_type),
-            _ => panic!("translate type error"), // Ok(TTypeInfo::new(self.type_cache.hole()))
+            AstType::KindApp(_,_,_) => {
+                panic!("todo kindapp")
+            },
+            AstType::KindedType(_,_,_) => panic!("todo kindedtype"),
+            AstType::Skolem(_,_,_,_,_) => panic!("todo skolem"),
+            
+            t => { panic!("translate type error")}, // Ok(TTypeInfo::new(self.type_cache.hole()))
         }
     }
 
