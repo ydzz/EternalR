@@ -1,3 +1,4 @@
+use gluon::vm::api::de::{De};
 use gluon::{RootedThread};
 use ast::types::{Module};
 use ast::{from_reader};
@@ -122,7 +123,7 @@ fn load_int(vm: &Thread) -> vm::Result<vm::ExternModule> {
 fn test_run() {
     let source = std::fs::read_to_string("tests/output/Main/corefn.json").unwrap();
     let externs = std::fs::File::open("tests/output/Main/externs.cbor").unwrap();
-    let mut er = EternalR::new();
+    let er = EternalR::new();
     add_extern_module(&er.thread, "log_int", load_int);
     prim::add_int_prim(&er.thread);
     

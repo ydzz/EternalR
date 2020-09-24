@@ -13,6 +13,8 @@ use gluon::base::pos::{ByteIndex, Span};
 use gluon::base::symbol::{Symbol, SymbolData, Symbols};
 use gluon::base::types::{ArcType, Field, Generic, KindedIdent, Type, TypeCache};
 use gluon::query::AsyncCompilation;
+use gluon::base::kind::{ArcKind};
+use std::collections::HashMap;
 use gluon::vm::core::{Allocator, Alternative, Named, Pattern};
 use gluon::vm::core::{Closure, Expr as VMExpr, LetBinding, Literal as VMLiteral};
 use gluon::ModuleCompiler;
@@ -134,7 +136,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         match expr {
             Expr::Literal(ann, lit) => {
                 let typ = self
-                    .translate_type(ann.2.as_ref().unwrap())
+                    .translate_type(ann.2.as_ref().unwrap(),None)
                     .map_err(|_| TranslateError::TypeError)?;
                 let vmexpr = self.translate_literal(lit, ann, typ.typ())?;
                 Ok(TExprInfo::new(vmexpr, typ.typ(), &ann.0))
@@ -145,7 +147,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     typ = TTypeInfo::new(self.type_cache.hole());
                 } else {
                     typ = self
-                        .translate_type(ann.2.as_ref().unwrap())
+                        .translate_type(ann.2.as_ref().unwrap(),None)
                         .map_err(|_| TranslateError::TypeError)?;
                 }
 
@@ -165,9 +167,9 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             Expr::Abs(ann, ident, abs_expr) => {
                 if let Some(types::Meta::IsTypeClassMember) = &ann.1 {
                     let type_class_name = self.id2str(ident)?;
-                    return self.gen_typeclass_member(bind_name, type_class_name, ann, expr);
+                    return self.gen_typeclass_member(bind_name, type_class_name, ann, expr,None);
                 }
-                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
+                let typ = self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?;
                 let arg_name = ident.as_str().unwrap();
                 let mut args: Vec<TypedIdent> = vec![TypedIdent::new2(
                     self.symbols.borrow_mut().simple_symbol(arg_name),
@@ -209,9 +211,9 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             }
             Expr::App(ann, a, b) => {
                 if let Some(types::Meta::IsTypeClassConstructor) = &ann.1 {
-                    return self.gen_type_class_instance(a, b, bind_name);
+                    return self.gen_type_class_instance(a, b, bind_name,None);
                 }
-                let typ = self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?;
+                let typ = self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?;
                 let mut expr_b = self.translate_expr(b, "")?;
                 
                 let mut args = vec![expr_b.take_expr()];
@@ -226,7 +228,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                             cur_arg = la;
                         },
                         Expr::Var(ann,qual) => {
-                            func_name_type = Some(self.translate_type(ann.2.as_ref().unwrap()).map_err(|_| TranslateError::TypeError)?);
+                            func_name_type = Some(self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?);
                             let name = qual.1.as_str().unwrap_or_default();
                             if name.chars().next().unwrap().is_uppercase() {
                                 ename_expr = Err(qual.1.as_str().unwrap_or_default());
@@ -270,7 +272,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             }
             Expr::Accessor(ann, name, expr) => {
                 let typ = self
-                    .translate_type(ann.2.as_ref().unwrap())
+                    .translate_type(ann.2.as_ref().unwrap(),None)
                     .map_err(|_| TranslateError::TypeError)?;
                 let mut expr_info = self.translate_expr(expr, "")?;
                 let ident_expr = self.alloc.arena.alloc(expr_info.take_expr());
@@ -301,7 +303,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             }
             Expr::Case(ann, exprs, cases) => {
                 let typ = self
-                    .translate_type(ann.2.as_ref().unwrap())
+                    .translate_type(ann.2.as_ref().unwrap(),None)
                     .map_err(|_| TranslateError::TypeError)?;
                 let mut pred = self.translate_expr(&exprs[0], "")?;
                 let pred_expr = self.alloc.arena.alloc(pred.take_expr());
@@ -438,7 +440,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             let id_name = self.id2str(id)?;
             let decl_type = *type_dic.get(id_name).ok_or(TranslateError::NotFindType)?;
             let typ = self
-                .translate_type(decl_type)
+                .translate_type(decl_type,None)
                 .map_err(|_| TranslateError::PartialType)?;
             let type_ident: TypedIdent = TypedIdent::new2(self.simple_symbol(id_name), typ.typ());
             let ident = VMExpr::Ident(type_ident, Span::new(ByteIndex(0), ByteIndex(0)));
@@ -461,7 +463,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         Ok((rec, typ.clone()))
     }
 
-    pub(crate) fn translate_type<T>(&self, typ: &AstType<T>) -> Result<TTypeInfo, TransferType> {
+    pub(crate) fn translate_type<T>(&self, typ: &AstType<T>,type_var_env:Option<&HashMap<String,ArcKind>>) -> Result<TTypeInfo, TransferType> {
         match &typ {
             AstType::TypeConstructor(_, qual_proper) => {
                 let type_name = types::proper_name_as_str(&qual_proper.1);
@@ -512,67 +514,24 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 }
             }
             AstType::TypeApp(_, _, _) => {
-                let app_list = self.flat_app_type(typ);
+                let app_list = self.flat_app_type(typ,type_var_env);
+                dbg!(&app_list);
                 let mut idx = 0;
                 let app_type = self.take_type_app(&app_list,&mut idx);
                 let args = self.take_type_app_args(app_type.clone());
                 Ok(TTypeInfo::new_func(app_type,args))
-                /*
-                match &app_list[0] {
-                    Err(ref trans_type) => {
-                        match trans_type {
-                            TransferType::PartialRecord(_) => {
-                                 return Ok(TTypeInfo::new(app_list[1].as_ref().unwrap().typ()));
-                            },
-                            TransferType::Function => {
-                                let arc_type = app_list[1].as_ref().unwrap().typ();
-                                Err(TransferType::FunctionCtor(arc_type))
-                            },
-                            TransferType::FunctionCtor(arc_type) => {
-                                //dbg!(&app_list);
-                                let mut flat_types:Vec<ArcType> = app_list.iter().skip(1).map(|v| {
-                                    match v {
-                                        Err(TransferType::FunctionCtor(at)) => at.clone(),
-                                        Ok(t) if t.typ.is_some() => t.typ(),
-                                        _ => panic!("translate fuction type error")
-                                    }
-                                }).collect();
-                                flat_types.insert(0, arc_type.clone());
-                                let tail = flat_types.pop().unwrap();
-                                let ft = self.type_cache.function( flat_types.iter().map(|v|(*v).clone()),tail.clone());
-                                let clone_flat_types = flat_types.iter().map(|v|(*v).clone()).collect();
-                                Ok(TTypeInfo::new_func(ft, clone_flat_types) )
-                            }
-                        }
-                    },
-                    Ok(ta)  => {
-                        if let Some(qual_type_name) = ta.cache_type.as_ref() {
-                            let gluon_type = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().gluon_type.clone();
-                            let type_name = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().type_name.clone();
-                            let type_vars = self.type_env.type_dic.borrow().get(qual_type_name).unwrap().type_vars.clone();
-
-                            let alias = Type::alias(self.simple_symbol(type_name.as_str()), type_vars, gluon_type);
-                            dbg!(&alias);
-                            Ok(TTypeInfo::new(alias))
-                        } else {
-                            let typb = self.translate_type(tb)?;
-                            Ok(TTypeInfo::new(Type::app(ta.typ(), collect!(typb.typ()))))
-                        }
-                    }
-                }
-                */
             }
             AstType::RCons(_, _, _, _) => {
                 let mut cur_type: &AstType<T> = typ;
                 let mut fields = vec![];
                 loop {
                     match cur_type {
-                        AstType::RCons(_, label, head_, tail_) => {
-                            let field_type = self.translate_type(head_).unwrap().typ();
+                        AstType::RCons(_, label, head, tail) => {
+                            let field_type = self.translate_type(head,type_var_env).unwrap().typ();
                             let name_sym = self.simple_symbol(label.as_str());
                             let field = Field::new(name_sym, field_type);
                             fields.push(field);
-                            cur_type = tail_;
+                            cur_type = tail;
                         }
                         _ => break,
                     }
@@ -580,35 +539,41 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 Ok(TTypeInfo::new(self.type_cache.record(vec![], fields)))
             }
             AstType::TypeVar(_, var) => {
-                let generic = Generic::new(self.simple_symbol(var.as_str()), Kind::typ());
-                Ok(TTypeInfo::new(Type::generic(generic)))
+                let kind = if let Some(dic) = type_var_env {
+                    dic.get(var).unwrap().clone()
+                } else {
+                    Kind::typ()
+                };
+                let generic = Generic::new(self.simple_symbol(var.as_str()), kind);
+                Ok(TTypeInfo::new(Type::generic( generic)))
             }
-            AstType::ForAll(_, _, _, _, _) => self.flat_forall(typ),
-            AstType::ConstrainedType(_, _constraint, e_type) => self.translate_type(e_type),
+            AstType::ForAll(_, _, _, _, _) => self.flat_forall(typ,type_var_env),
+            AstType::ConstrainedType(_, _constraint, e_type) => self.translate_type(e_type,type_var_env),
             AstType::KindApp(_,_,_) => {
                 panic!("todo kindapp")
             },
             AstType::KindedType(_,_,_) => panic!("todo kindedtype"),
             AstType::Skolem(_,_,_,_,_) => panic!("todo skolem"),
             
-            t => { panic!("translate type error")}, // Ok(TTypeInfo::new(self.type_cache.hole()))
+            _ => { panic!("translate type error")}, // Ok(TTypeInfo::new(self.type_cache.hole()))
         }
     }
 
     pub(crate) fn flat_app_type<T>(
         &self,
         typ: &AstType<T>,
+        type_var_env:Option<&HashMap<String,ArcKind>>
     ) -> Vec<Result<TTypeInfo, TransferType>> {
         let mut cur_type = typ;
         let mut list: Vec<Result<TTypeInfo, TransferType>> = vec![];
         loop {
             match cur_type {
                 AstType::TypeApp(_, head, tail) => {
-                    list.extend(self.flat_app_type(head));
+                    list.extend(self.flat_app_type(head,type_var_env));
                     cur_type = tail;
                 }
                 _ => {
-                    list.push(self.translate_type(cur_type));
+                    list.push(self.translate_type(cur_type,type_var_env));
                     break;
                 }
             }
@@ -627,17 +592,42 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 let record_idx = *idx + 1;
                 *idx += 2;
                 app_list[record_idx].as_ref().unwrap().typ()
-            },
+            }
             Ok(ty) => {
                 if let Some(env_type_name) = ty.env_type.as_ref() {
                     self.take_type_ctor(app_list, idx,env_type_name.as_str())
                 } else {
-                    *idx += 1;
-                    ty.typ()
+                    match &**ty.typ.as_ref().unwrap() {
+                        Type::Generic(g) => {
+                            self.take_var_ctor(g,app_list, idx)
+                        }
+                        _ => {
+                            *idx += 1;
+                            ty.typ()
+                        }
+                    }
+                    
                 }
             },
         }
     }
+
+    fn take_var_ctor(&self,generic:&Generic<Symbol>,app_list: &Vec<Result<TTypeInfo, TransferType>>,idx:&mut usize) -> ArcType {
+        //Function Type Type => Function(Type,Type)
+        //Function Function Type Type Type => Function(Function(Type,Type),Type)
+        *idx += 1;
+        let kind = &*generic.kind;
+        match kind {
+            Kind::Type => {
+                self.take_type_app(app_list, idx)
+            },
+            Kind::Function(l,r) => {
+                panic!()
+            }
+            _ => panic!()
+        }
+       
+    } 
 
     fn take_type_ctor(&self,app_list:&Vec<Result<TTypeInfo, TransferType>>,idx:&mut usize,type_name:&str) -> ArcType {
         *idx += 1;
@@ -684,7 +674,8 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
     }
 
 
-    pub(crate) fn flat_forall<T>(&self, typ: &AstType<T>) -> Result<TTypeInfo, TransferType> {
+    pub(crate) fn flat_forall<T>(&self, typ: &AstType<T>,type_var_env:Option<&HashMap<String,ArcKind>>) -> Result<TTypeInfo, TransferType> {
+        let dic = Some(self.forall_kind_dic(typ)) ;
         let mut names: Vec<String> = vec![];
         let mut cur_type = typ;
         loop {
@@ -701,7 +692,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         }
 
         //dbg!(names);
-        let vm_type = self.translate_type(cur_type);
+        let vm_type = self.translate_type(cur_type,dic.as_ref());
         //dbg!(&vm_type);
         vm_type
     }
@@ -712,20 +703,15 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         typeclass_name: &str,
         ann: &Ann,
         _expr: &Expr<Ann>,
+        type_var_env:Option<&HashMap<String,ArcKind>>
     ) -> Result<TExprInfo<'alloc>, TranslateError> {
         let span = source_span_to_byte_span(&ann.0);
 
         let func_name_sym = self.simple_symbol(name);
-        let typeclass_info = self
-            .type_env
-            .type_dic
-            .borrow()
-            .get(typeclass_name)
-            .unwrap()
-            .clone();
+        let typeclass_info = self.type_env.type_dic.borrow().get(typeclass_name).unwrap().clone();
         let class_type = typeclass_info.gluon_type.clone();
 
-        let ret_type = self.translate_type(ann.2.as_ref().unwrap()).unwrap().typ();
+        let ret_type = self.translate_type(ann.2.as_ref().unwrap(),type_var_env).unwrap().typ();
         let garr: Vec<ArcType> = typeclass_info
             .type_vars
             .clone()
@@ -777,6 +763,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         body: &Expr<Ann>,
         arg: &Expr<Ann>,
         bind_name: &str,
+        type_var_env:Option<&HashMap<String,ArcKind>>
     ) -> Result<TExprInfo<'alloc>, TranslateError> {
         let mut cur_body = body;
         let info = self.translate_expr(arg, "")?;
@@ -798,7 +785,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     var_ann = Some(ann.clone());
                     typeclass_name = qual.join_name(|id| id.as_str().unwrap().to_string());
                     for ty in tys {
-                        let tty = self.translate_type(ty).unwrap().typ();
+                        let tty = self.translate_type(ty,type_var_env).unwrap().typ();
                         types.push(tty);
                     }
                     break;

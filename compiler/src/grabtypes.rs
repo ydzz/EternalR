@@ -1,15 +1,16 @@
 use ast::types::Module;
 use ast::types::{self,Bind,Expr,Ann,Type,Meta,Ident,Literal};
-use crate::translate::{Translate,TransferType,TTypeInfo};
+use crate::translate::{Translate,TTypeInfo};
 use std::collections::HashMap;
 use std::cell::RefCell;
 use gluon::base::symbol::Symbol;
 use gluon::base::types::{Field,ArcType,Generic};
-use gluon::base::kind::Kind;
+use gluon::base::kind::{Kind,ArcKind};
 use gluon::base::types::TypeExt;
 use std::sync::Arc;
 use gluon::base::types::{Type as VMType};
 use gluon::base::ast::{TypedIdent};
+
 #[derive(Default)]
 pub struct TypInfoEnv {
    pub type_dic: RefCell<HashMap<String, Arc<TypeInfo>>>
@@ -49,12 +50,21 @@ pub struct TypeInfo {
     pub type_str_vars:Vec<String>,
     pub type_vars:Vec<Generic<Symbol>>
 }
+#[derive(Debug)]
+enum TransferKT {
+    Type,
+    Function
+}
+
+pub struct TypeClassInfo {
+    args:Vec<Generic<Symbol>>
+}
 
 impl<'vm,'alloc> Translate<'vm,'alloc> {
     pub fn grab_type_info(&self,module:&mut Module)  {
         let mut new_decls:Vec<Bind<Ann>> = vec![];
         let mut cache_map:HashMap<String,Vec<(String,Vec<String>,Vec<Type<()>>) >> = HashMap::new();
-        
+        let mut cache_typeclass:HashMap<String,(Vec<String>,Vec<String>)> = HashMap::new();
         for decl in module.decls.drain(0..) {
             match decl {
                 Bind::NonRec(bind_ann,ident,expr) => {
@@ -74,7 +84,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                         Expr::Abs(ann,id,expr) => {
                             match &ann.1 {
                                 Some(Meta::IsTypeClassConstructor) => {
-                                   self.grab_type_class(&bind_ann,&expr,&ident,module.name.clone());
+                                   self.set_type_class_info(&bind_ann,&expr,&ident,module.name.as_str(),&mut cache_typeclass);
                                 },
                                 _ => {
                                     let bexpr = Box::new(Expr::Abs(ann,id,expr));
@@ -95,6 +105,12 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             }
         }
         module.decls = new_decls;
+       self.collect_data_ctors(cache_map,module);
+       self.collect_typeclass(&mut cache_typeclass, &module.decls);
+    
+    }
+
+    fn collect_data_ctors(&self,cache_map:HashMap<String,Vec<(String,Vec<String>,Vec<Type<()>>) >>,module:&mut Module) {
         //collect type
         for (k,item) in cache_map.iter() {
             let mut fields = vec![];
@@ -103,7 +119,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 let mut gtypes:Vec<TTypeInfo> = vec![];
                 for typ in typs {
                     type_vars.extend(self.search_type_var(typ));
-                    gtypes.push(self.translate_type(typ).unwrap());
+                    gtypes.push(self.translate_type(typ,None).unwrap());
                 } 
                 let args:Vec<_> = gtypes.iter().map(|t| t.typ()).collect();
                
@@ -134,7 +150,6 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             };
             self.type_env.add_type_info(type_info);
         }
-        
     }
 
     fn search_type_var(&self,typ:&Type<()>) -> Vec<String> {
@@ -153,7 +168,24 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
         vars
     }
 
-    fn grab_type_class(&self,ann:&Ann,expr:&Expr<Ann>,ident:&Ident,mut module_name: String) {
+    fn set_type_class_info(&self,ann:&Ann,expr:&Expr<Ann>,ident:&Ident,module_name: &str,maps:&mut HashMap<String,(Vec<String>,Vec<String>)>) {
+        let mut class_var_names:Vec<_> = vec![];
+        if let Some(Type::TypeVar(_,strings)) =   ann.2.as_ref() {
+            class_var_names = strings.split(",").map(|s| s.to_string()).collect();
+        };
+        let mut class_func_names:Vec<String> = vec![];
+        if let Expr::Literal(_,Literal::ObjectLiteral(lit_vec)) = expr {
+            for (func_name,_) in lit_vec {
+                class_func_names.push(func_name.to_owned());
+            }
+        }
+        let mut typeclass_name = String::from(module_name);
+        typeclass_name.push('.');
+        typeclass_name.push_str(self.id2str(ident).unwrap());
+        maps.insert(typeclass_name, (class_var_names,class_func_names));
+       
+        /*
+       
         let ann_type = ann.2.as_ref().unwrap();
         let ann_type_var:Vec<String> = match ann_type {
             Type::TypeVar(_,strings) => strings.split(",").map(|s| s.to_string()).collect(),
@@ -180,10 +212,109 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
             type_str_vars:ann_type_var,
             type_vars:g_type_vars
         };
-        //dbg!("add typevar {:?}",&type_info);
-        self.type_env.add_type_info(type_info);
+        dbg!("add typevar {:?}",&type_info);
+        self.type_env.add_type_info(type_info);*/
     }
 
+
+    fn collect_typeclass(&self,maps:&mut HashMap<String,(Vec<String>,Vec<String>)>,decls:&Vec<Bind<Ann>>) {
+        let mut typeclass_args_dic:HashMap<String,Vec<Generic<Symbol>>> = HashMap::new();
+        for bind_item in decls {
+            match bind_item {
+                Bind::NonRec(_,bind_ident,expr) => {
+                   if let Expr::Abs(ann,ident,_) = &**expr {
+                       if let Some(Meta::IsTypeClassMember)  = ann.1 {
+                           let ident_str = ident.as_str().unwrap();
+                           if maps.contains_key(ident_str) {
+                               let func_name = bind_ident.as_str().unwrap();
+                               let dic = self.forall_kind_dic(&ann.2.as_ref().unwrap());
+                               if typeclass_args_dic.contains_key(ident_str) == false {
+                                   let mut args = vec![];
+                                   for var_name in maps.get(ident_str).unwrap().0.iter() {
+                                      let kind = dic.get(var_name).unwrap();
+                                      let generic = Generic::new(self.simple_symbol(var_name), kind.clone());
+                                      args.push(generic);
+                                   }
+                                   typeclass_args_dic.insert(ident_str.to_string(), args);
+                               }
+                               let func_type = self.translate_type(&ann.2.as_ref().unwrap(),None);
+                               dbg!(func_type);
+                           }
+                       }
+                   }
+                }
+                _ => ()
+            }
+        }
+
+        dbg!(typeclass_args_dic);
+    }
+
+    pub(crate) fn forall_kind_dic<T>(&self,typ:&Type<T>) -> HashMap<String,ArcKind> {
+        let mut kind_map = HashMap::new();
+        let mut cur_type = typ;
+        loop {
+            match cur_type {
+                Type::ForAll(_,name,vart,t,_) => {
+                    let kind = self.translate_kind_type(vart.as_ref().unwrap());
+                    kind_map.insert(name.to_string(), kind);
+                    cur_type = t
+                },
+                _ => break
+            }
+        }
+        kind_map
+    }
+
+    
+
+    fn translate_kind_type<T>(&self,typ:&Type<T>) -> ArcKind {
+       let array = self.flat_kind_type(typ);
+       let mut index = 0usize;
+       fn parse(array:&Vec<TransferKT>,index:&mut usize) -> ArcKind {
+           let cur = &array[*index];
+           match cur {
+               TransferKT::Type => {
+                   *index = *index + 1;
+                   Kind::typ()
+               },
+               TransferKT::Function => parse_function(array,index)
+               
+           }
+       }
+       fn parse_function(array:&Vec<TransferKT>,index:&mut usize) -> ArcKind {
+           *index = *index + 1;
+           let head = parse(array,index);
+           let tail = parse(array,index);
+           Kind::function(head, tail)
+       }
+       parse(&array,&mut index)
+    }
+
+    fn flat_kind_type<T>(&self,typ:&Type<T>) -> Vec<TransferKT> {
+        let mut items:Vec<TransferKT> = vec![];
+        let mut cur_type = typ;
+        loop {
+            match cur_type {
+                Type::TypeApp(_,l,r) => {
+                    items.extend(self.flat_kind_type(l));
+                    cur_type = r;
+                },
+                Type::TypeConstructor(_,qual) => {
+                   let name = types::proper_name_as_str(&qual.1);
+                   if name == "Type" {
+                       items.push(TransferKT::Type);
+                   } else if name == "Function" {
+                       items.push(TransferKT::Function);
+                   }
+                   break;
+                },
+                _ => break
+            }
+        }
+        items
+    }
+/*
     fn find_type_class_type(&self,expr:&Expr<Ann>) -> VMType<Symbol> {
         let mut cur_expr = expr;
         let mut fields:Vec<Field<Symbol>> = vec![];
@@ -245,5 +376,5 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 name:sym
             }
         }
-    }
+    }*/
 }

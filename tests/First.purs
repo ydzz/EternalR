@@ -6,14 +6,14 @@ infixl 6 __prim_int_add as +
 
 data Maybe a = Just a | Nothing
 
-class Functor f where
-    fmap::forall a b.(a -> b) -> f a -> f b 
-
+class Functor f (fc::(Type -> Type) -> Type) where
+    fmap::forall a b c.(a -> b) -> f a -> fc c -> f b 
+{-
 instance functorMaybe :: Functor Maybe where
     fmap f ma = case ma of
                   Just val -> Just (f val)
                   Nothing -> Nothing
-
+-}
 main::Int
 main = 111
 {-
