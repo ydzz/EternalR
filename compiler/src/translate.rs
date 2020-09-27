@@ -11,7 +11,7 @@ use gluon::base::kind::Kind;
 use gluon::base::pos::BytePos;
 use gluon::base::pos::{ByteIndex, Span};
 use gluon::base::symbol::{Symbol, SymbolData, Symbols};
-use gluon::base::types::{ArcType, Field, Generic, KindedIdent, Type, TypeCache};
+use gluon::base::types::{ArcType, Field, Generic, KindedIdent, Type, TypeCache,BuiltinType};
 use gluon::query::AsyncCompilation;
 use gluon::base::kind::{ArcKind};
 use std::collections::HashMap;
@@ -515,7 +515,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             }
             AstType::TypeApp(_, _, _) => {
                 let app_list = self.flat_app_type(typ,type_var_env);
-                dbg!(&app_list);
+                //dbg!(&app_list);
                 let mut idx = 0;
                 let app_type = self.take_type_app(&app_list,&mut idx);
                 let args = self.take_type_app_args(app_type.clone());
@@ -612,21 +612,48 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         }
     }
 
+   fn get_arc_type_kind(&self,typ:&ArcType) -> KindArray {
+       match &**typ {
+         Type::Builtin(BuiltinType::Int) | Type::Builtin(BuiltinType::Float) | Type::Builtin(BuiltinType::String) | Type::Builtin(BuiltinType::Char) => {
+             KindArray::Type
+         },
+         Type::Builtin(BuiltinType::Array) => {
+             KindArray::KindArray(vec![KindArray::Type,KindArray::Type])
+         },
+         Type::Record(_) => {
+             KindArray::Type
+         },
+         Type::Generic(g) => {
+             to_kind_array(&g.kind)
+         }
+          _ => { 
+              dbg!(typ);
+              panic!()
+          }
+       }
+   }
+
     fn take_var_ctor(&self,generic:&Generic<Symbol>,app_list: &Vec<Result<TTypeInfo, TransferType>>,idx:&mut usize) -> ArcType {
-        //Function Type Type => Function(Type,Type)
-        //Function Function Type Type Type => Function(Function(Type,Type),Type)
         *idx += 1;
-        let kind = &*generic.kind;
-        match kind {
-            Kind::Type => {
-                self.take_type_app(app_list, idx)
-            },
-            Kind::Function(l,r) => {
-                panic!()
-            }
-            _ => panic!()
+        let kind_array = to_kind_array(&generic.kind);
+        if kind_array == KindArray::Type {
+            return Type::generic(generic.clone())
         }
-       
+        // Function Function a  b Function  f a Function fc a b  f b
+        if let KindArray::KindArray(arr) = kind_array {
+            let mut kind_arr:Vec<ArcType> = vec![];
+            //println!("{:?} idx:{}",generic,*idx);
+            //println!("{:?}",arr);
+            for _ in 0..arr.len() -1 {
+                let arc_type = self.take_type_app(app_list, idx);
+               
+                //let arc_kind = self.get_arc_type_kind(&arc_type);
+                kind_arr.push(arc_type);     
+            }
+            return Type::app(Type::generic(generic.clone()), kind_arr.into());
+        }
+
+        todo!()
     } 
 
     fn take_type_ctor(&self,app_list:&Vec<Result<TTypeInfo, TransferType>>,idx:&mut usize,type_name:&str) -> ArcType {
@@ -855,6 +882,9 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
     pub(crate) fn simple_symbol(&self, name: &str) -> Symbol {
         self.symbols.borrow_mut().simple_symbol(name)
     }
+
+
+   
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -934,4 +964,50 @@ impl<'a> TExprInfo<'a> {
     pub fn take_expr(&mut self) -> VMExpr<'a> {
         self.expr.take().unwrap()
     }
+}
+
+#[derive(Debug,PartialEq)]
+enum KindArray {
+    Type,
+    KindArray(Vec<KindArray>)
+}
+
+fn to_kind_array(kind:&ArcKind) -> KindArray {
+    let mut cur_kind:&Kind = &**kind;
+    let mut array:Vec<KindArray> = vec![];
+    loop {
+        match cur_kind {
+            Kind::Function(l,r) => {
+                match &**l {
+                    Kind::Type => {
+                        array.push(KindArray::Type);
+                    },
+                    Kind::Function(_,_) => {
+                        array.push(to_kind_array(l));
+                    }
+                    _ => panic!()
+                }
+                cur_kind = r;
+            },
+            Kind::Type => {
+                array.push(KindArray::Type);
+                break;
+            }
+            ,_ => panic!()
+        }
+    }
+    if array.len() > 1 {
+        return KindArray::KindArray(array)
+    }
+    if array.len() == 1 {
+        match &array[0] {
+            KindArray::Type => {
+                return KindArray::Type
+            },
+            KindArray::KindArray(_) => {
+                return array.remove(0)
+            }
+        }
+    }
+    panic!()
 }

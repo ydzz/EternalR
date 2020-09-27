@@ -237,8 +237,9 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                                    }
                                    typeclass_args_dic.insert(ident_str.to_string(), args);
                                }
+                              
                                let func_type = self.translate_type(&ann.2.as_ref().unwrap(),None);
-                               dbg!(func_type);
+                               dbg!(func_type.unwrap().typ());
                            }
                        }
                    }
