@@ -3,20 +3,55 @@ module Main(main) where
 --foreign import log_int::Int -> Int
 foreign import __prim_int_add::Int -> Int -> Int
 infixl 6 __prim_int_add as +
+infixl 6 bind as >>=
 
 data Maybe a = Just a | Nothing
 
+class Monad m where
+    bind::forall a b. m a -> (a -> m b) -> m b
 
+instance maybeMonad:: Monad Maybe where
+    bind maya bindf = case maya of
+                        Just v  -> bindf v
+                        Nothing -> Nothing
+
+unwrap::Maybe Int -> Int
+unwrap Nothing = 0
+unwrap (Just idx) = idx
+
+
+defaultOne::Maybe Int
+defaultOne = Just 114514
+
+add1::Int -> Maybe Int
+add1 n = Just (n + 1)
+
+toN::Int -> Maybe Int
+toN _ = Nothing
+
+doEffect::Maybe Int
+doEffect = do
+   v <- defaultOne
+   v2 <- add1 v
+   v3 <- add1 v2
+   vn <- toN v3
+   add1 v3
+
+main::Int
+main = unwrap doEffect
+
+{-
 class Functor f where
     fmap::forall a b.(a -> b) -> f a -> f b 
-{-
+
 instance functorMaybe :: Functor Maybe where
     fmap f ma = case ma of
                   Just val -> Just (f val)
                   Nothing -> Nothing
+addOne::Int -> Int
+addOne a = a + 1
 -}
-main::Int
-main = 111
+
 {-
 class Show a  where
     show::a -> String

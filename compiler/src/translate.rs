@@ -20,12 +20,15 @@ use gluon::vm::core::{Closure, Expr as VMExpr, LetBinding, Literal as VMLiteral}
 use gluon::ModuleCompiler;
 use std::cell::RefCell;
 use std::sync::Arc;
+use std::collections::HashSet;
 
 pub struct Translate<'vm, 'alloc> {
     pub alloc: &'alloc Allocator<'alloc>,
     pub type_cache: &'vm TypeCache<Symbol, ArcType>,
     pub symbols: RefCell<Symbols>,
     pub type_env: Arc<TypInfoEnv>,
+
+    pub cur_typeclass_args:HashSet<String>
 }
 
 impl<'vm, 'alloc> Translate<'vm, 'alloc> {
@@ -39,11 +42,12 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             type_cache,
             symbols: RefCell::new(Symbols::new()),
             type_env,
+            cur_typeclass_args:HashSet::new()
         }
     }
 
     pub fn translate(
-        &self,
+        &mut self,
         module: &mut Module,
         externs_file: ExternsFile,
         mut compiler: ModuleCompiler<'_, '_>,
@@ -200,7 +204,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 let pos = source_span_to_byte_span(&ann.0);
                 let closure = Closure {
                     pos: pos.start(),
-                    name: TypedIdent::new2(Symbol::from(bind_name), typ.typ()),
+                    name: TypedIdent::new2(self.simple_symbol(bind_name) , typ.typ()),
                     args,
                     expr: self.alloc.arena.alloc(expr_body.take_expr()),
                 };
@@ -215,25 +219,35 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 }
                 let typ = self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?;
                 let mut expr_b = self.translate_expr(b, "")?;
-                
-                let mut args = vec![expr_b.take_expr()];
+                let expr2 = if expr_b.closure.len() == 0 {
+                    expr_b.take_expr()
+                } else {
+                    self.gen_closure_let(ann, expr_b)
+                };
+                let mut args:Vec<VMExpr<'alloc>> = vec![expr2];
                 let mut cur_arg: &Expr<Ann> = a;
                 let ename_expr;
-                let mut func_name_type = None;
+                //let mut func_name_type = None;
                 loop {
                     match cur_arg {
-                        Expr::App(_, la, lb) => {
+                        Expr::App(ann, la, lb) => {
                             let mut arg_expr = self.translate_expr(lb, "")?;
-                            args.push(arg_expr.take_expr());
+                            if arg_expr.closure.len() > 0 {
+                                let let_expr:VMExpr<'alloc> = self.gen_closure_let(ann,arg_expr);
+                                args.push(let_expr);
+                            } else {
+                                args.push(arg_expr.take_expr());
+                            }
                             cur_arg = la;
                         },
-                        Expr::Var(ann,qual) => {
-                            func_name_type = Some(self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?);
+                        Expr::Var(_,qual) => {
+                            //func_name_type = Some(self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?);
                             let name = qual.1.as_str().unwrap_or_default();
+                           
                             if name.chars().next().unwrap().is_uppercase() {
                                 ename_expr = Err(qual.1.as_str().unwrap_or_default());
                             } else {
-                                let mut texpr = self.translate_expr(expr, "")?;
+                                let mut texpr = self.translate_expr(cur_arg, "")?;
                                 ename_expr = Ok(texpr.take_expr());
                             }
                             break;
@@ -317,7 +331,25 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                         }
                         Binder::NullBinder(_) => {
                             pattern = Pattern::Ident(TypedIdent::new(self.simple_symbol("")));
-                        }
+                        },
+                        Binder::ConstructorBinder(_,t,c,lst) => {
+                            let type_name = t.join_name(|s| proper_name_as_str(s).to_string());
+                            let data_type = self.type_env.type_dic.borrow().get(&type_name).unwrap().clone();
+                            let cname = proper_name_as_str(&c.1);
+                            let type_ident = TypedIdent::new2(self.simple_symbol(cname),data_type.gluon_type.clone());
+                            let mut var_binds:Vec<TypedIdent> = vec![];
+                            for var_bind in lst {
+                                if let Binder::VarBinder(ann,ident) = var_bind {
+                                    //dbg!(ann);
+                                    let t = self.type_cache.hole();//self.translate_type(ann.2.as_ref().unwrap(),None).unwrap().typ();
+                                    let ident = TypedIdent::new2(self.simple_symbol(ident.as_str().unwrap()), t);
+                                    var_binds.push(ident);
+                                }
+                            }
+                            pattern = Pattern::Constructor(type_ident,var_binds);
+                            //dbg!(binder);
+                            //todo!()
+                        },
                         b => {
                             dbg!(b);
                             todo!()
@@ -342,6 +374,21 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 todo!()
             }
         }
+    }
+
+
+    fn gen_closure_let(&self,ann:&Ann,expr_info:TExprInfo<'alloc>) -> VMExpr<'alloc> {
+        let byte_span = source_span_to_byte_span(&ann.0);
+        let named = Named::Recursive(expr_info.closure);
+        let name = TypedIdent::new2(self.simple_symbol(""), expr_info.typ);
+        let let_binding = LetBinding {
+            name: name.clone(),
+            expr: named,
+            span_start: byte_span.start(),
+        };
+        let let_ref =  self.alloc.let_binding_arena.alloc(let_binding);
+        let ident_ref = self.alloc.arena.alloc(VMExpr::Ident(name,byte_span));
+        VMExpr::Let(let_ref,ident_ref)
     }
 
     fn translate_literal_binder(
@@ -553,8 +600,12 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 panic!("todo kindapp")
             },
             AstType::KindedType(_,_,_) => panic!("todo kindedtype"),
-            AstType::Skolem(_,_,_,_,_) => panic!("todo skolem"),
-            
+            AstType::Skolem(_,name,typ,_,_) => {
+               let t = typ.as_ref().unwrap();
+               let arc_kind = self.translate_kind_type(&**t);
+               let generic = Generic::new(self.simple_symbol(name), arc_kind);
+               Ok(TTypeInfo::new(Type::generic(generic))) 
+            },
             _ => { panic!("translate type error")}, // Ok(TTypeInfo::new(self.type_cache.hole()))
         }
     }
@@ -571,7 +622,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 AstType::TypeApp(_, head, tail) => {
                     list.extend(self.flat_app_type(head,type_var_env));
                     cur_type = tail;
-                }
+                },
                 _ => {
                     list.push(self.translate_type(cur_type,type_var_env));
                     break;
@@ -701,14 +752,18 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
     }
 
 
-    pub(crate) fn flat_forall<T>(&self, typ: &AstType<T>,type_var_env:Option<&HashMap<String,ArcKind>>) -> Result<TTypeInfo, TransferType> {
-        let dic = Some(self.forall_kind_dic(typ)) ;
-        let mut names: Vec<String> = vec![];
+    pub(crate) fn flat_forall<T>(&self, typ: &AstType<T>,_:Option<&HashMap<String,ArcKind>>) -> Result<TTypeInfo, TransferType> {
+        let dic = self.forall_kind_dic(typ) ;
+        let mut names: Vec<Generic<Symbol>> = vec![];
         let mut cur_type = typ;
         loop {
             match cur_type {
                 AstType::ForAll(_, name, _, next, _) => {
-                    names.push(name.to_owned());
+                    if self.cur_typeclass_args.contains(name) == false {
+                        let kind = dic.get(name).unwrap();
+                        let g = Generic::new(self.simple_symbol(name), kind.clone());
+                        names.push(g);
+                    }
                     cur_type = next;
                 }
                 t => {
@@ -718,10 +773,10 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             }
         }
 
-        //dbg!(names);
-        let vm_type = self.translate_type(cur_type,dic.as_ref());
-        //dbg!(&vm_type);
-        vm_type
+        let vm_type = self.translate_type(cur_type,Some(dic).as_ref());
+        let t = vm_type.unwrap().typ();
+        let forall = Type::forall(names, t);
+        Ok(TTypeInfo::new(forall)) 
     }
 
     fn gen_typeclass_member(
@@ -785,13 +840,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         Ok(tinfo)
     }
 
-    fn gen_type_class_instance(
-        &self,
-        body: &Expr<Ann>,
-        arg: &Expr<Ann>,
-        bind_name: &str,
-        type_var_env:Option<&HashMap<String,ArcKind>>
-    ) -> Result<TExprInfo<'alloc>, TranslateError> {
+    fn gen_type_class_instance(&self,body: &Expr<Ann>,arg: &Expr<Ann>,bind_name: &str,type_var_env:Option<&HashMap<String,ArcKind>>) -> Result<TExprInfo<'alloc>, TranslateError> {
         let mut cur_body = body;
         let info = self.translate_expr(arg, "")?;
         let mut teinfos: Vec<TExprInfo> = vec![info];
@@ -812,7 +861,12 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     var_ann = Some(ann.clone());
                     typeclass_name = qual.join_name(|id| id.as_str().unwrap().to_string());
                     for ty in tys {
-                        let tty = self.translate_type(ty,type_var_env).unwrap().typ();
+                        let tt = self.translate_type(ty, type_var_env).unwrap();
+                        let tty = if let Some(env_name) = tt.env_type {
+                           self.type_env.type_dic.borrow().get(&env_name).unwrap().gluon_type.clone()
+                        } else {
+                            tt.typ()
+                        };
                         types.push(tty);
                     }
                     break;
@@ -880,7 +934,12 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
     }
 
     pub(crate) fn simple_symbol(&self, name: &str) -> Symbol {
-        self.symbols.borrow_mut().simple_symbol(name)
+        
+        let ret = self.symbols.borrow_mut().simple_symbol(name);
+        if name == "unwrap" {
+            println!("fire unwrap:{:?}",&ret);
+        }
+        ret
     }
 
 

@@ -320,6 +320,7 @@ dependencies = [
  "gluon",
  "log",
  "ordered-float",
+ "pretty",
  "serde_json",
  "typed-arena",
 ]

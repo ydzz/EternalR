@@ -148,6 +148,8 @@ fn test_gluon() {
                 | Just y -> Just (f y)
                 | Nothing -> Nothing
        }
+
+       
        
        let val = functor.fmap (\n -> n #Int+ 1) (Just 666)
        val
@@ -156,8 +158,8 @@ fn test_gluon() {
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
     
-    let val = vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;
-   
+    let _val = vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;
+    
     //println!("gluon: {}",val);
     //let mut f:FunctionRef<fn(i32,i32) -> i32>  = vm.get_global("fuck.const").unwrap();
     //let nn = f.call(1i32,2i32);

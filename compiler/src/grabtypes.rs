@@ -61,7 +61,7 @@ pub struct TypeClassInfo {
 }
 
 impl<'vm,'alloc> Translate<'vm,'alloc> {
-    pub fn grab_type_info(&self,module:&mut Module)  {
+    pub fn grab_type_info(&mut self,module:&mut Module)  {
         let mut new_decls:Vec<Bind<Ann>> = vec![];
         let mut cache_map:HashMap<String,Vec<(String,Vec<String>,Vec<Type<()>>) >> = HashMap::new();
         let mut cache_typeclass:HashMap<String,(Vec<String>,Vec<String>)> = HashMap::new();
@@ -217,29 +217,37 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
     }
 
 
-    fn collect_typeclass(&self,maps:&mut HashMap<String,(Vec<String>,Vec<String>)>,decls:&Vec<Bind<Ann>>) {
+    fn collect_typeclass(&mut self,cache_typeclass:&mut HashMap<String,(Vec<String>,Vec<String>)>,decls:&Vec<Bind<Ann>>) {
         let mut typeclass_args_dic:HashMap<String,Vec<Generic<Symbol>>> = HashMap::new();
+        let mut typeclass_fields_dic:HashMap<String,Vec<Field<Symbol>>> = HashMap::new();
         for bind_item in decls {
             match bind_item {
                 Bind::NonRec(_,bind_ident,expr) => {
                    if let Expr::Abs(ann,ident,_) = &**expr {
                        if let Some(Meta::IsTypeClassMember)  = ann.1 {
                            let ident_str = ident.as_str().unwrap();
-                           if maps.contains_key(ident_str) {
+                           if cache_typeclass.contains_key(ident_str) {
                                let func_name = bind_ident.as_str().unwrap();
                                let dic = self.forall_kind_dic(&ann.2.as_ref().unwrap());
                                if typeclass_args_dic.contains_key(ident_str) == false {
                                    let mut args = vec![];
-                                   for var_name in maps.get(ident_str).unwrap().0.iter() {
+                                   for var_name in cache_typeclass.get(ident_str).unwrap().0.iter() {
                                       let kind = dic.get(var_name).unwrap();
                                       let generic = Generic::new(self.simple_symbol(var_name), kind.clone());
                                       args.push(generic);
+                                      self.cur_typeclass_args.insert(var_name.to_string());
                                    }
                                    typeclass_args_dic.insert(ident_str.to_string(), args);
+                                   
                                }
-                              
+                               
                                let func_type = self.translate_type(&ann.2.as_ref().unwrap(),None);
-                               dbg!(func_type.unwrap().typ());
+                               self.cur_typeclass_args.clear();
+                               let field = Field::new(self.simple_symbol(func_name) , func_type.as_ref().unwrap().typ());
+                               if !typeclass_fields_dic.contains_key(ident_str) {
+                                   typeclass_fields_dic.insert(ident_str.to_owned(), vec![]);
+                               }
+                               typeclass_fields_dic.get_mut(ident_str).unwrap().push(field);
                            }
                        }
                    }
@@ -247,8 +255,30 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
                 _ => ()
             }
         }
-
-        dbg!(typeclass_args_dic);
+        
+        //dbg!(typeclass_args_dic);
+        //dbg!(typeclass_fields_dic);
+        for typeclass_name in typeclass_args_dic.keys() {
+            let args = typeclass_args_dic.get(typeclass_name).unwrap();
+            let str_args:Vec<String> = args.iter().map(|item| {
+                item.id.name().as_str().to_string()   
+            }).collect();
+            let fields = typeclass_fields_dic.remove(typeclass_name).unwrap();
+            let row =  VMType::extend_row(fields, self.type_cache.empty_row.clone());
+            let record = VMType::Record(row);
+            let arc_record:ArcType = record.into();
+            let alias:ArcType = VMType::alias(self.simple_symbol(typeclass_name) , args.clone(), arc_record.clone());
+            let end_name =  typeclass_name.split('.').last().as_ref().unwrap().to_string();
+            let type_info = TypeInfo {
+                qual_type_name:typeclass_name.clone(),
+                type_name:end_name,
+                gluon_type:alias,
+                gluon_type2:Some(arc_record),
+                type_str_vars:str_args,
+                type_vars:args.clone()
+            };
+            self.type_env.add_type_info(type_info);
+        }
     }
 
     pub(crate) fn forall_kind_dic<T>(&self,typ:&Type<T>) -> HashMap<String,ArcKind> {
@@ -269,7 +299,7 @@ impl<'vm,'alloc> Translate<'vm,'alloc> {
 
     
 
-    fn translate_kind_type<T>(&self,typ:&Type<T>) -> ArcKind {
+    pub fn translate_kind_type<T>(&self,typ:&Type<T>) -> ArcKind {
        let array = self.flat_kind_type(typ);
        let mut index = 0usize;
        fn parse(array:&Vec<TransferKT>,index:&mut usize) -> ArcKind {

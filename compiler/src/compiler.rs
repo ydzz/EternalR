@@ -6,13 +6,13 @@ use ast::types::Module;
 use gluon::vm::core::{Allocator};
 use std::sync::Arc;
 use gluon::base::types::{ArcType,TypeCache,Field,Type};
-use gluon::vm::core::Expr;
+use gluon::vm::core::{Expr};
 use gluon::vm::thread::Thread;
 use gluon::ThreadExt;
 use gluon::base::symbol::{Symbols,SymbolModule,Symbol};
 use gluon::base::source::{FileMap};
 use gluon::vm::compiler::{Compiler as VMCompiler,CompiledModule};
-
+use pretty::{self,BoxAllocator,DocBuilder};
 pub struct  Compiler {
     type_env:Arc<TypInfoEnv>
 }
@@ -30,12 +30,15 @@ impl Compiler {
         let externs_file = from_reader(externs);
         let db = &mut thread.get_database();
         let compiler = thread.module_compiler(db);
-        let trans = Translate::new(&alloc,type_cahce,self.type_env.clone());
+        let mut trans = Translate::new(&alloc,type_cahce,self.type_env.clone());
 
         //core expr
         let mut ast_module:Module = serde_json::from_str(corefn).unwrap();
         let (vm_expr,_typ):(&Expr,ArcType) = trans.translate(&mut ast_module, externs_file,compiler).unwrap();
-        dbg!(&vm_expr);
+        let new = pretty::Arena::<()>::new();
+        let mut doc = vm_expr.pretty(&new,gluon::vm::core::pretty::Prec::Top);
+        let ss:String = doc.1.pretty(100).to_string();
+        std::fs::write("out.glu", ss);
         //byte module
         let mut symbols = Symbols::new();
         let sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -47,7 +50,7 @@ impl Compiler {
         let env =  db.as_env();
         let mut compiler = VMCompiler::new(&env,&vm_state,sym_modules,&source,"test".into(),true);
         let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(vm_expr).unwrap();
-        dbg!(&compiled_module);
+        //dbg!(&compiled_module);
 
 
         use gluon::base::metadata::{Metadata};
