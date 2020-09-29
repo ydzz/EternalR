@@ -17,6 +17,7 @@ use gluon::vm::{thread::RootedValue,Result as VMResult,core::Expr};
 use gluon::compiler_pipeline::{Executable,ExecuteValue};
 use gluon::vm::core::{Allocator};
 use std::io::Read;
+use er_compiler::grabtypes::TypInfoEnv;
 #[macro_use]
 extern crate gluon;
 pub struct EternalR {
@@ -37,7 +38,8 @@ impl<'a> EternalR {
         let externs_file = from_reader(externs);
         let db = &mut self.thread.get_database();
         let compiler = self.thread.module_compiler(db);
-        let trans = Translate::new(alloc, self.thread.global_env().type_cache(),todo!());
+        let env = Arc::new(TypInfoEnv::default());
+        let mut trans = Translate::new(alloc, self.thread.global_env().type_cache(),env);
 
         let mut ast_module:Module = serde_json::from_str(source).unwrap();
         let (core_expr,typ):(&'alloc Expr<'alloc>,ArcType) = trans.translate(&mut ast_module, externs_file,compiler).unwrap();
@@ -108,13 +110,13 @@ use gluon::{new_vm,vm::thread::Thread,vm};
 use gluon::import::{add_extern_module};
 
 
-fn log_int(x: i32) -> i32 {
-    eprintln!("log int: {}",x);
-    x   
+fn log_int() -> i32 {
+    eprintln!("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh log int: {}",444);
+    66666  
 }
 
 fn load_int(vm: &Thread) -> vm::Result<vm::ExternModule> {
-    vm::ExternModule::new(vm, primitive!(1, log_int))
+    vm::ExternModule::new(vm, primitive!(0, log_int))
 }
 
 
@@ -138,28 +140,18 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-       type Functor f = {
-           fmap : forall a b . (a -> b) -> f a -> f b
-       }
-       type Maybe a = | Just a | Nothing
-       let functor: Functor Maybe = {
-           fmap = \f x -> 
-              match x with
-                | Just y -> Just (f y)
-                | Nothing -> Nothing
-       }
-
-       
-       
-       let val = functor.fmap (\n -> n #Int+ 1) (Just 666)
-       val
+      let {__io_pure,__io_bind} = import! io
+      let {__otherfn} = import! other
+     
+      [__io_pure 111,__otherfn 222]
     "#;
-    //add_extern_module(&vm, "log_message", load_int);
+    add_extern_module(&vm, "io", load_io_module);
+    add_extern_module(&vm, "other", load_other_module);
     vm.get_database_mut().set_implicit_prelude(false);
     vm.run_io(true);
-    
+   
     let _val = vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;
-    
+    dbg!(_val);
     //println!("gluon: {}",val);
     //let mut f:FunctionRef<fn(i32,i32) -> i32>  = vm.get_global("fuck.const").unwrap();
     //let nn = f.call(1i32,2i32);
@@ -168,3 +160,37 @@ fn test_gluon() {
    
 }
 
+
+fn __println(s: &str) -> IO<()> {
+    println!("{}", s);
+    IO::Value(())
+}
+
+
+use gluon::vm::types::*;
+use gluon::vm::api::{IO,generic::{A,B},TypedBytecode};
+fn load_other_module(vm: &Thread) -> vm::Result<vm::ExternModule> {
+    type Wrap = fn(A) -> IO<A>;
+    let wrap = vec![Pop(1), Return];
+    vm::ExternModule::new(vm, record! {
+        __otherfn => TypedBytecode::<Wrap>::new("io.__io_pure", 2, wrap.clone()),
+    })
+}
+
+fn load_io_module(vm: &Thread) -> vm::Result<vm::ExternModule> {
+    type FlatMap = fn(fn(A) -> IO<B>, IO<A>) -> IO<B>;
+    type Wrap = fn(A) -> IO<A>;
+    let flat_map = vec![
+        // [f, m, ()]       Initial stack
+        Call(1),     // [f, m_ret]       Call m ()
+        PushInt(0),  // [f, m_ret, ()]   Add a dummy argument ()
+        TailCall(2), /* [f_ret]          Call f m_ret () */
+        Return,
+    ];
+    let wrap = vec![Pop(1), Return];
+    vm::ExternModule::new(vm, record! {
+        __io_bind => TypedBytecode::<FlatMap>::new("io.__io_bind", 3, flat_map),
+        __io_pure => TypedBytecode::<Wrap>::new("io.__io_pure", 2, wrap.clone()),
+        __println => TypedBytecode::<Wrap>::new("io.__println", 2, wrap),
+    })
+}

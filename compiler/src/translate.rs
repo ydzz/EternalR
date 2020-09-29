@@ -103,24 +103,27 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         compiler: &mut ModuleCompiler<'_, '_>,
     ) -> Result<&'alloc VMExpr<'alloc>, TranslateError> {
         let mut cur_expr = pre_expr;
+        let import =  futures::executor::block_on(compiler.database.import("io".to_string())).unwrap();
+        dbg!(import);
         for ident in module.foreign.iter() {
             let ident_name = self.id2str(ident)?;
             if ident_name.starts_with("__prim_") {
                 continue;
             }
-            let sym_name = self.simple_symbol(ident_name);
-            let name: TypedIdent = TypedIdent::new(sym_name);
-            //import
-            futures::executor::block_on(compiler.database.import(ident_name.into())).unwrap();
-
+            let new_ident_name = ident_name.replace("'", ".");
+            let sym_name = self.simple_symbol(new_ident_name.as_str());
+            
+           
             let f_sym_name = self.symbols.borrow_mut().symbol(SymbolData {
                 global: true,
                 location: None,
-                name: ident_name,
+                name: new_ident_name.as_str(),
             });
             let f_name: TypedIdent = TypedIdent::new(f_sym_name);
             let span = Span::new(BytePos(0), BytePos(0));
             let expr = Named::Expr(self.alloc.arena.alloc(VMExpr::Ident(f_name, span)));
+            
+            let name: TypedIdent = TypedIdent::new(sym_name);
             let let_binding = LetBinding {
                 name,
                 expr,
@@ -128,6 +131,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
             };
             let expr = VMExpr::Let(self.alloc.let_binding_arena.alloc(let_binding), cur_expr);
             cur_expr = self.alloc.arena.alloc(expr);
+           
         }
         Ok(cur_expr)
     }
@@ -208,7 +212,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     args,
                     expr: self.alloc.arena.alloc(expr_body.take_expr()),
                 };
-                //dbg!(&typ2);
+            
                 let tinfo = TExprInfo::new_closure(typ2, vec![closure], &ann.0);
 
                 Ok(tinfo)
@@ -291,7 +295,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 let mut expr_info = self.translate_expr(expr, "")?;
                 let ident_expr = self.alloc.arena.alloc(expr_info.take_expr());
                 let field_sym = self.symbols.borrow_mut().simple_symbol(name.as_str());
-                //dbg!(&ident_expr);
+             
 
                 let pattern = Pattern::Record {
                     typ: expr_info.typ,
@@ -534,6 +538,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     _ => {
                         let qual_type_name =
                             qual_proper.join_name(|q| proper_name_as_str(q).to_string());
+                        //dbg!(&qual_type_name);
                         let var_len = self
                             .type_env
                             .type_dic
@@ -874,31 +879,46 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 _ => break,
             }
         }
-        let typeclass_type = self
-            .type_env
-            .type_dic
-            .borrow()
-            .get(typeclass_name.as_str())
-            .unwrap()
-            .clone();
+        let typeclass_type = self.type_env.type_dic.borrow().get(typeclass_name.as_str()).unwrap().clone();
         let mut field_arr = vec![];
-        for info in teinfos {
-            let closure_arr = info.closure;
-            let func_type = closure_arr[0].name.typ.clone();
-            let closure_name = closure_arr[0].name.name.clone();
-            let named = Named::Recursive(closure_arr);
-
-            let field_id = TypedIdent::new2(closure_name, func_type);
-            let let_bind = LetBinding {
-                name: field_id.clone(),
-                expr: named,
-                span_start: ByteIndex(info.start),
-            };
-            let let_bind_ref = self.alloc.let_binding_arena.alloc(let_bind);
-            let zero_span = Span::new(BytePos(0), BytePos(0));
-            let field_id_expr = self.alloc.arena.alloc(VMExpr::Ident(field_id, zero_span));
-            let let_expr = VMExpr::Let(let_bind_ref, field_id_expr);
-            field_arr.push(let_expr);
+        let zero_span = Span::new(BytePos(0), BytePos(0));
+        for mut info in teinfos.drain(0..) {
+            if info.closure.len() == 0 {
+                let expr = info.take_expr();
+                let expr_ref = self.alloc.arena.alloc(expr);
+                let named = Named::Expr( expr_ref);
+                let name = TypedIdent {
+                    name: self.simple_symbol(""),
+                    typ: info.typ.clone(),
+                };
+                let let_bind = LetBinding {
+                    name:name.clone(),
+                    expr: named,
+                    span_start: ByteIndex(info.start),
+                };
+                let let_bind_ref = self.alloc.let_binding_arena.alloc(let_bind);
+                
+                let field_id_expr = self.alloc.arena.alloc(VMExpr::Ident(name, zero_span));
+                let let_expr = VMExpr::Let(let_bind_ref, field_id_expr);
+                field_arr.push(let_expr);
+            } else {
+                let func_type = info.closure[0].name.typ.clone();
+                let closure_name = info.closure[0].name.name.clone();
+                let named = Named::Recursive(info.closure);
+    
+                let field_ident = TypedIdent::new2(closure_name, func_type);
+                let let_bind = LetBinding {
+                    name: field_ident.clone(),
+                    expr: named,
+                    span_start: ByteIndex(info.start),
+                };
+                let let_bind_ref = self.alloc.let_binding_arena.alloc(let_bind);
+                
+                let field_id_expr = self.alloc.arena.alloc(VMExpr::Ident(field_ident, zero_span));
+                let let_expr = VMExpr::Let(let_bind_ref, field_id_expr);
+                field_arr.push(let_expr);
+            }
+           
         }
         let app_type = Type::app(typeclass_type.gluon_type.clone(), types.into());
         //let bind_name_sym = self.simple_symbol(bind_name);
@@ -910,7 +930,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         );
         let lets = self.alloc.arena.alloc_fixed(field_arr);
         let data_expr = VMExpr::Data(data_id, lets, ByteIndex(0));
-
+        //dbg!(&data_expr);
         Ok(TExprInfo::new(
             data_expr,
             app_type,

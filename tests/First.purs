@@ -1,10 +1,31 @@
-module Main(main) where
+module Main(pi) where
 
 --foreign import log_int::Int -> Int
 foreign import __prim_int_add::Int -> Int -> Int
 infixl 6 __prim_int_add as +
-infixl 6 bind as >>=
+infixl 6 discard  as >>=
+foreign import data IO::Type -> Type
+foreign import io'__io_bind::forall a b. IO a -> (a -> IO b) -> IO b
+foreign import io'__io_pure::forall a .a -> IO a
+--foreign import io'readLine::IO String
+--foreign import io'__println::String -> IO Int
 
+pi::Number
+pi = 3.14159265358
+
+class Monad m where
+    discard ::forall a b. m a -> (a -> m b) -> m b
+    --pure::forall a.a -> m a
+
+instance ioMonad :: Monad IO where
+    discard  = io'__io_bind
+    --pure = io'__io_pure
+
+--main::IO Int
+--main = do
+  --io'println "fuck world"
+--  pure 0
+{-
 data Maybe a = Just a | Nothing
 
 class Monad m where
@@ -18,7 +39,6 @@ instance maybeMonad:: Monad Maybe where
 unwrap::Maybe Int -> Int
 unwrap Nothing = 0
 unwrap (Just idx) = idx
-
 
 defaultOne::Maybe Int
 defaultOne = Just 114514
@@ -40,7 +60,7 @@ doEffect = do
 main::Int
 main = unwrap doEffect
 
-{-
+
 class Functor f where
     fmap::forall a b.(a -> b) -> f a -> f b 
 

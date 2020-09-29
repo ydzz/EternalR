@@ -13,6 +13,8 @@ use gluon::base::symbol::{Symbols,SymbolModule,Symbol};
 use gluon::base::source::{FileMap};
 use gluon::vm::compiler::{Compiler as VMCompiler,CompiledModule};
 use pretty::{self,BoxAllocator,DocBuilder};
+
+
 pub struct  Compiler {
     type_env:Arc<TypInfoEnv>
 }
@@ -24,7 +26,7 @@ impl Compiler {
 
     pub fn compile<R>(&self,corefn:&str,externs:R,thread:&Thread) where R:Read {
         let type_cahce =  thread.global_env().type_cache();
-        self.buildin_prim(type_cahce);
+        self.buildin_prim(type_cahce,thread);
 
         let alloc = Arc::new(Allocator::new());
         let externs_file = from_reader(externs);
@@ -79,7 +81,7 @@ impl Compiler {
    
 
 
-    fn buildin_prim(&self,type_cache:&TypeCache<Symbol,ArcType>) {
+    fn buildin_prim(&self,type_cache:&TypeCache<Symbol,ArcType>,thread:&Thread) {
         let mut symbols = Symbols::new();
         let true_sym = symbols.simple_symbol("True");
         let false_sym = symbols.simple_symbol("False");
@@ -97,6 +99,22 @@ impl Compiler {
             type_str_vars:vec![],
             type_vars:vec![]
         });
+
+        
+        let env = thread.get_env();
+        let alias = env.find_type_info("std.io.IO").unwrap();
+       
+        let arc_alias:ArcType<Symbol> = alias.into_type();
+       
+        
+        self.type_env.add_type_info(TypeInfo {
+            qual_type_name:"Main.IO".to_string(),
+            type_name:"IO".to_string(),
+            gluon_type: arc_alias.clone(),
+            gluon_type2:None,
+            type_str_vars:vec!["a".to_string()],
+            type_vars:arc_alias.params().into()
+        });
     }
 }
 
@@ -106,6 +124,37 @@ fn test_compile() {
     let externs = std::fs::File::open("../tests/output/Main/externs.cbor").unwrap();
     let compiler = Compiler::new();
     let thread = gluon::new_vm();
+
+    use gluon::import::{add_extern_module};
+   
+    add_extern_module(&thread, "io", load_io_module);
+
     compiler.compile(source.as_str(), externs, &thread);
 }
 
+
+fn __println(s: &str) -> IO<()> {
+    println!("{}", s);
+    IO::Value(())
+}
+
+use gluon::vm::{self,api};
+use gluon::vm::types::*;
+use gluon::vm::api::{IO,generic::{A,B},TypedBytecode};
+fn load_io_module(vm: &Thread) -> vm::Result<vm::ExternModule> {
+    type FlatMap = fn(fn(A) -> IO<B>, IO<A>) -> IO<B>;
+    type Wrap = fn(A) -> IO<A>;
+    let flat_map = vec![
+        // [f, m, ()]       Initial stack
+        Call(1),     // [f, m_ret]       Call m ()
+        PushInt(0),  // [f, m_ret, ()]   Add a dummy argument ()
+        TailCall(2), /* [f_ret]          Call f m_ret () */
+        Return,
+    ];
+    let wrap = vec![Pop(1), Return];
+    vm::ExternModule::new(vm, record! {
+        __io_bind => TypedBytecode::<FlatMap>::new("io.__io_bind", 3, flat_map),
+        __io_pure => TypedBytecode::<Wrap>::new("io.__io_pure", 2, wrap.clone()),
+        __println => TypedBytecode::<Wrap>::new("io.__println", 2, wrap),
+    })
+}
