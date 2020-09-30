@@ -61,6 +61,19 @@ impl<T> ArenaExt<T> for Arena<T> {
 }
 
 
+pub fn split_last(source:&str,ch:char) -> (&str,&str) {
+    let mut last_find_idx = 0;
+    let mut idx = 0;
+    for chr in source.chars() {
+        if chr == ch {
+            last_find_idx = idx;
+        }
+        idx += 1
+    }
+    let (s,_) = source.split_at(last_find_idx);
+    let (_,e) = source.split_at(last_find_idx + 1);
+    (s,e)
+}
 
 pub fn source_span_to_byte_span(source_span:&SourceSpan) -> Span<BytePos>  {
     let start = source_pos_to_byte_pos(&source_span.start);

@@ -13,6 +13,9 @@ impl ExternsFile {
     pub fn decl_type_dic(&self) -> HashMap<&str,&Type<SourceAnn>> {
         let mut dic: HashMap<&str,&Type<SourceAnn>> = HashMap::default();
         for decl in self.declarations.iter() {
+            if decl.get_name() == "" {
+                continue;
+            }
             let typ = decl.get_type();
             let name = decl.get_name();
             dic.insert(name, typ);
@@ -40,7 +43,13 @@ impl ExternsDeclaration {
             ExternsDeclaration::EDValue {value_type,..} => {
                 return value_type
             },
-            _ => panic!()
+            ExternsDeclaration::EDType() => {
+                todo!()
+            }
+            ed =>  {
+                dbg!(ed);
+                panic!()
+            } 
         }
     }
 
@@ -49,6 +58,9 @@ impl ExternsDeclaration {
             ExternsDeclaration::EDValue {value_name,..} => {
                 value_name.as_str().unwrap()
             },
+            ExternsDeclaration::EDType() => {
+                ""
+            }
             _ => panic!()
         }
     }

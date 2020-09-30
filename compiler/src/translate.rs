@@ -96,42 +96,64 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         }
     }
 
+    fn search_field(&self,typ:&ArcType<Symbol>,name:&str) -> Option<Field<Symbol>> {
+        if let Type::Record(row) = &**typ {
+            if let Type::ExtendRow {fields,..} = &**row {
+                let fields_arr:&Vec<Field<Symbol>> = fields;
+                for field in fields_arr {
+                    if field.name.as_str() == name {
+                        return Some(field.clone())
+                    }
+                }
+            }
+        }
+
+        None
+    }
     fn translate_foreign(
         &self,
         module: &Module,
         pre_expr: &'alloc VMExpr<'alloc>,
         compiler: &mut ModuleCompiler<'_, '_>,
     ) -> Result<&'alloc VMExpr<'alloc>, TranslateError> {
+        let zero_span = Span::new(BytePos(0), BytePos(0));
         let mut cur_expr = pre_expr;
-        let import =  futures::executor::block_on(compiler.database.import("io".to_string())).unwrap();
-        dbg!(import);
+        let mut module_imports:HashMap<String,Vec<String>> = HashMap::new();
         for ident in module.foreign.iter() {
             let ident_name = self.id2str(ident)?;
-            if ident_name.starts_with("__prim_") {
+            if ident_name.starts_with("primcore'") {
                 continue;
             }
-            let new_ident_name = ident_name.replace("'", ".");
-            let sym_name = self.simple_symbol(new_ident_name.as_str());
-            
-           
-            let f_sym_name = self.symbols.borrow_mut().symbol(SymbolData {
-                global: true,
-                location: None,
-                name: new_ident_name.as_str(),
-            });
-            let f_name: TypedIdent = TypedIdent::new(f_sym_name);
-            let span = Span::new(BytePos(0), BytePos(0));
-            let expr = Named::Expr(self.alloc.arena.alloc(VMExpr::Ident(f_name, span)));
-            
-            let name: TypedIdent = TypedIdent::new(sym_name);
-            let let_binding = LetBinding {
-                name,
-                expr,
-                span_start: span.start(),
+            let (module_name,func_name) = split_last(ident_name, '\'');
+            if !module_imports.contains_key(module_name) {
+                module_imports.insert(module_name.to_string(), vec![]);
+            }
+            let func_list = module_imports.get_mut(module_name).unwrap();
+            func_list.push(func_name.to_string());
+        }
+       
+        for (m_name,list) in module_imports.iter() {
+            let import_ident = futures::executor::block_on(compiler.database.import(m_name.clone())).unwrap();
+            let module_type = import_ident.typ.clone();
+            let mut fields:Vec<(TypedIdent,Option<Symbol>)> = vec![];
+            for fname in list {
+               let field = self.search_field(&module_type, fname.as_str()).unwrap();
+               let typed_ident = TypedIdent::new2(field.name, field.typ);
+               let mut clone_name = m_name.clone();
+               clone_name.push('\'');
+               clone_name.push_str(fname.as_str());
+               let let_sym_name = self.simple_symbol(clone_name.as_str());
+               fields.push((typed_ident,Some(let_sym_name)));
+            }
+           let pattern = Pattern::Record {
+                typ:module_type,
+                fields
             };
-            let expr = VMExpr::Let(self.alloc.let_binding_arena.alloc(let_binding), cur_expr);
-            cur_expr = self.alloc.arena.alloc(expr);
-           
+            let alt_arr = vec![Alternative {pattern, expr:cur_expr }];
+            let alt = self.alloc.alternative_arena.alloc_fixed(alt_arr);
+            let match_ident = self.alloc.alloc(VMExpr::Ident(import_ident.clone(),zero_span));
+            let match_expr = VMExpr::Match(match_ident,alt);
+            cur_expr = self.alloc.alloc(match_expr); 
         }
         Ok(cur_expr)
     }
@@ -269,7 +291,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     Ok(name_expr) => {
                         let ea = self.alloc.arena.alloc(name_expr);
                         match ea {
-                            VMExpr::Ident(id, _) if id.name.as_str().starts_with("__prim_") => {
+                            VMExpr::Ident(id, _) if id.name.as_str().starts_with("primcore'") => {
                                 let prim_name = Translate::replace_prim_name(id.name.as_str());
                                 let sym = self.symbols.borrow_mut().simple_symbol(prim_name);
                                 let prim_id = TypedIdent::new2(sym, id.typ.clone());
@@ -316,7 +338,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     .alloc_fixed(std::iter::once(alt));
 
                 let match_expr = VMExpr::Match(ident_expr, alt_list);
-                dbg!(&match_expr);
+                //dbg!(&match_expr);
                 Ok(TExprInfo::new(match_expr, typ.typ(), &ann.0))
             }
             Expr::Case(ann, exprs, cases) => {
@@ -611,7 +633,13 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                let generic = Generic::new(self.simple_symbol(name), arc_kind);
                Ok(TTypeInfo::new(Type::generic(generic))) 
             },
-            _ => { panic!("translate type error")}, // Ok(TTypeInfo::new(self.type_cache.hole()))
+            AstType::TUnknown(_,_) => panic!("todo Unknown"),
+            AstType::TypeLevelString(_,_) =>  panic!("todo TypeLevelString"),
+            AstType::TypeWildcard(_,_) =>  panic!("todo TypeWildcard"),
+            AstType::TypeOp(_,_) => panic!("todo TypeOp"),
+            AstType::REmpty(_) => panic!("todo REmpty"),
+            AstType::BinaryNoParensType(_,_,_,_) => panic!("todo BinaryNoParensType"),
+            AstType::ParensInType(_,_) => panic!("todo ParensInType"),
         }
     }
 
@@ -848,17 +876,19 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
     fn gen_type_class_instance(&self,body: &Expr<Ann>,arg: &Expr<Ann>,bind_name: &str,type_var_env:Option<&HashMap<String,ArcKind>>) -> Result<TExprInfo<'alloc>, TranslateError> {
         let mut cur_body = body;
         let info = self.translate_expr(arg, "")?;
+        
         let mut teinfos: Vec<TExprInfo> = vec![info];
         let mut typeclass_name: String = String::default();
         let mut types: Vec<ArcType> = vec![];
         let mut var_ann = None;
         loop {
             match cur_body {
-                Expr::App(ann, body, _) => {
+                Expr::App(ann, body, app_arg) => {
                     let mut gen_name = bind_name.to_string();
                     let span = source_span_to_byte_span(&ann.0);
                     gen_name.push_str(span.start().to_string().as_str());
-                    let info = self.translate_expr(arg, gen_name.as_str())?;
+                    let info = self.translate_expr(app_arg, gen_name.as_str())?;
+                   
                     teinfos.push(info);
                     cur_body = body;
                 }
@@ -891,6 +921,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                     name: self.simple_symbol(""),
                     typ: info.typ.clone(),
                 };
+                
                 let let_bind = LetBinding {
                     name:name.clone(),
                     expr: named,
@@ -900,6 +931,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 
                 let field_id_expr = self.alloc.arena.alloc(VMExpr::Ident(name, zero_span));
                 let let_expr = VMExpr::Let(let_bind_ref, field_id_expr);
+                
                 field_arr.push(let_expr);
             } else {
                 let func_type = info.closure[0].name.typ.clone();
@@ -947,8 +979,8 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
 
     fn replace_prim_name(func_name: &str) -> String {
         match func_name {
-            "__prim_int_add" => "#Int+".into(),
-            "__prim_int_sub" => "#Int-".into(),
+            "primcore'int_add" => "#Int+".into(),
+            "primcore'int_sub" => "#Int-".into(),
             _ => func_name.into(),
         }
     }

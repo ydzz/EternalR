@@ -140,10 +140,10 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-      let {__io_pure,__io_bind} = import! io
-      let {__otherfn} = import! other
+      let {__io_pure} = import! io
      
-      [__io_pure 111,__otherfn 222]
+      let io'pure = __io_pure
+      [io'pure 111]
     "#;
     add_extern_module(&vm, "io", load_io_module);
     add_extern_module(&vm, "other", load_other_module);
@@ -152,6 +152,7 @@ fn test_gluon() {
    
     let _val = vm.run_expr::<OpaqueValue<&Thread,Hole>>("Fuck", script).unwrap().0;
     dbg!(_val);
+    
     //println!("gluon: {}",val);
     //let mut f:FunctionRef<fn(i32,i32) -> i32>  = vm.get_global("fuck.const").unwrap();
     //let nn = f.call(1i32,2i32);

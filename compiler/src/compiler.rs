@@ -153,8 +153,8 @@ fn load_io_module(vm: &Thread) -> vm::Result<vm::ExternModule> {
     ];
     let wrap = vec![Pop(1), Return];
     vm::ExternModule::new(vm, record! {
-        __io_bind => TypedBytecode::<FlatMap>::new("io.__io_bind", 3, flat_map),
-        __io_pure => TypedBytecode::<Wrap>::new("io.__io_pure", 2, wrap.clone()),
-        __println => TypedBytecode::<Wrap>::new("io.__println", 2, wrap),
+        bind => TypedBytecode::<FlatMap>::new("bind", 3, flat_map),
+       pure => TypedBytecode::<Wrap>::new("pure", 2, wrap.clone()),
+        println => TypedBytecode::<Wrap>::new("println", 2, wrap),
     })
 }
