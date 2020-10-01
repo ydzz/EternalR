@@ -138,7 +138,7 @@ impl Into<ExternsDeclaration> for Value {
         let e_num:i32 = from_value( array.remove(0)).unwrap();
         match e_num {
             0 => {
-                eprintln!("todo ExternsDeclaration");
+               
                 ExternsDeclaration::EDType()
             },
             3 => {
@@ -151,7 +151,7 @@ impl Into<ExternsDeclaration> for Value {
                 }
             },
             _ => {
-                eprintln!("todo ExternsDeclaration");
+               
                 ExternsDeclaration::EDType()
             }
         }
@@ -167,6 +167,13 @@ impl Into<SourceType> for Value {
                 let ann:SourceAnn = array.remove(0).into();
                 let qual_name:Qualified<ProperName> = array.remove(0).into();
                 types::Type::TypeConstructor(ann,qual_name)
+            },
+            6 => {
+                let ann:SourceAnn = array.remove(0).into();
+                let left:SourceType = array.remove(0).into();
+                let right:SourceType = array.remove(0).into();
+                types::Type::TypeApp(ann,Box::new(left),Box::new(right))
+               
             },
             e_num => { 
                 let ann:SourceAnn = array.remove(0).into();

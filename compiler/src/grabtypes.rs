@@ -56,10 +56,6 @@ enum TransferKT {
     Function
 }
 
-pub struct TypeClassInfo {
-    args:Vec<Generic<Symbol>>
-}
-
 impl<'vm,'alloc> Translate<'vm,'alloc> {
     pub fn grab_type_info(&mut self,module:&mut Module)  {
         let mut new_decls:Vec<Bind<Ann>> = vec![];

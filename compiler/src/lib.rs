@@ -27,8 +27,7 @@ fn test_first() {
    println!("end load");
    let v:i32 = thread.get_global("F").unwrap();
    dbg!(v);
-   //let mut buffer = Vec::new();
-   let  string = String::default();
+
    let mut buffer2 = std::fs::File::create("foo.txt").unwrap();
    let mut serializer = serde_json::Serializer::new(&mut buffer2);
    

@@ -1,4 +1,7 @@
-module Main(pi) where
+module Main(pi,IO,main) where
+-- $prime
+pi::Number
+pi = 3.14159265358
 
 --foreign import log_int::Int -> Int
 foreign import primcore'int_add::Int -> Int -> Int
@@ -11,8 +14,7 @@ foreign import io'pure::forall a .a -> IO a
 --foreign import io'readLine::IO String
 foreign import io'println::String -> IO Int
 
-pi::Number
-pi = 3.14159265358
+
 
 class Monad m where
     discard ::forall a b. m a -> (a -> m b) -> m b
@@ -26,7 +28,8 @@ instance ioMonad :: Monad IO where
 main::IO Int
 main = do
   io'println "fuck world"
-  pure 0
+  io'println "哈哈哈哈哈哈哈哈"
+  pure 66667
 {-
 data Maybe a = Just a | Nothing
 

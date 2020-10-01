@@ -53,8 +53,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         mut compiler: ModuleCompiler<'_, '_>,
     ) -> Result<(&'alloc VMExpr<'alloc>, ArcType), TranslateError> {
         self.grab_type_info(module);
-        let (export_expr, typ): (VMExpr<'alloc>, ArcType) =
-            self.translate_exports(&module.exports, &externs_file)?;
+        let (export_expr, typ): (VMExpr<'alloc>, ArcType) = self.translate_exports(&module.exports, &externs_file)?;
         let mut pre_expr = self.alloc.arena.alloc(export_expr);
         for bind in module.decls.iter().rev() {
             let (let_binding, _) = self.translate_bind_item(bind)?;
@@ -365,7 +364,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                             let type_ident = TypedIdent::new2(self.simple_symbol(cname),data_type.gluon_type.clone());
                             let mut var_binds:Vec<TypedIdent> = vec![];
                             for var_bind in lst {
-                                if let Binder::VarBinder(ann,ident) = var_bind {
+                                if let Binder::VarBinder(_,ident) = var_bind {
                                     //dbg!(ann);
                                     let t = self.type_cache.hole();//self.translate_type(ann.2.as_ref().unwrap(),None).unwrap().typ();
                                     let ident = TypedIdent::new2(self.simple_symbol(ident.as_str().unwrap()), t);
@@ -501,11 +500,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         }
     }
 
-    fn translate_exports(
-        &self,
-        exports: &Vec<Ident>,
-        externs_file: &ExternsFile,
-    ) -> Result<(VMExpr<'alloc>, ArcType), TranslateError> {
+    fn translate_exports(&self,exports: &Vec<Ident>,externs_file: &ExternsFile) -> Result<(VMExpr<'alloc>, ArcType), TranslateError> {
         let type_dic = externs_file.decl_type_dic();
         let mut field_types: Vec<Field<Symbol>> = vec![];
         let mut fields: Vec<VMExpr<'alloc>> = vec![];
@@ -696,26 +691,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         }
     }
 
-   fn get_arc_type_kind(&self,typ:&ArcType) -> KindArray {
-       match &**typ {
-         Type::Builtin(BuiltinType::Int) | Type::Builtin(BuiltinType::Float) | Type::Builtin(BuiltinType::String) | Type::Builtin(BuiltinType::Char) => {
-             KindArray::Type
-         },
-         Type::Builtin(BuiltinType::Array) => {
-             KindArray::KindArray(vec![KindArray::Type,KindArray::Type])
-         },
-         Type::Record(_) => {
-             KindArray::Type
-         },
-         Type::Generic(g) => {
-             to_kind_array(&g.kind)
-         }
-          _ => { 
-              dbg!(typ);
-              panic!()
-          }
-       }
-   }
+
 
     fn take_var_ctor(&self,generic:&Generic<Symbol>,app_list: &Vec<Result<TTypeInfo, TransferType>>,idx:&mut usize) -> ArcType {
         *idx += 1;

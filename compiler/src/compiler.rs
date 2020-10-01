@@ -11,8 +11,8 @@ use gluon::vm::thread::Thread;
 use gluon::ThreadExt;
 use gluon::base::symbol::{Symbols,SymbolModule,Symbol};
 use gluon::base::source::{FileMap};
-use gluon::vm::compiler::{Compiler as VMCompiler,CompiledModule};
-use pretty::{self,BoxAllocator,DocBuilder};
+use gluon::vm::compiler::{Compiler as VMCompiler};
+use pretty::{self};
 
 
 pub struct  Compiler {
@@ -38,9 +38,11 @@ impl Compiler {
         let mut ast_module:Module = serde_json::from_str(corefn).unwrap();
         let (vm_expr,_typ):(&Expr,ArcType) = trans.translate(&mut ast_module, externs_file,compiler).unwrap();
         let new = pretty::Arena::<()>::new();
-        let mut doc = vm_expr.pretty(&new,gluon::vm::core::pretty::Prec::Top);
+        
+        let doc = vm_expr.pretty(&new,gluon::vm::core::pretty::Prec::Top);
         let ss:String = doc.1.pretty(100).to_string();
-        std::fs::write("out.glu", ss);
+        std::fs::write("out.glu", ss).unwrap();
+        
         //byte module
         let mut symbols = Symbols::new();
         let sym_modules = SymbolModule::new("".into(), &mut symbols);
@@ -54,28 +56,15 @@ impl Compiler {
         let compiled_module:gluon::vm::compiler::CompiledModule = compiler.compile_expr(vm_expr).unwrap();
         //dbg!(&compiled_module);
 
-
-        use gluon::base::metadata::{Metadata};
-        let metadata = Arc::new(Metadata::default());
-        use gluon::compiler_pipeline::{CompileValue,};
-        use gluon::compiler_pipeline::Executable;
-        let compile_value:CompileValue<()> = CompileValue {
-            expr:(),
-            core_expr:gluon::vm::core::interpreter::Global {
-                        value: gluon::vm::core::freeze_expr( &alloc, vm_expr),
-                        info: Default::default(),
-                        },
-            typ:_typ.clone(),
-            metadata:metadata.clone(),
-            module:compiled_module
-        };
-
-        let val = futures::executor::block_on( 
-            compile_value.run_expr(
-                &mut thread.clone().module_compiler(&mut thread.get_database()),thread.clone(),"","",()
-            )
-        ).unwrap();
-        dbg!(&val.value);
+       
+       
+        use crate::gluon::vm::thread::ThreadInternal;
+        let closure = thread.global_env().new_global_thunk(&thread, compiled_module).unwrap();
+        let vm1 = thread.clone();
+        let exec_value = futures::executor::block_on(vm1.call_thunk_top(&closure)).unwrap();
+        let field = exec_value.get_field("main").unwrap();
+        let ret = futures::executor::block_on(vm1.execute_io_top(field.get_variant())).unwrap();
+        dbg!(ret);
     }
 
    
@@ -133,14 +122,14 @@ fn test_compile() {
 }
 
 
-fn __println(s: &str) -> IO<()> {
-    println!("{}", s);
-    IO::Value(())
+fn println(s: &str) -> IO<i32> {
+    eprintln!("{}", s);
+    IO::Value(0)
 }
 
 use gluon::vm::{self,api};
 use gluon::vm::types::*;
-use gluon::vm::api::{IO,generic::{A,B},TypedBytecode};
+use gluon::vm::api::{IO,generic::{A,B},TypedBytecode,primitive};
 fn load_io_module(vm: &Thread) -> vm::Result<vm::ExternModule> {
     type FlatMap = fn(fn(A) -> IO<B>, IO<A>) -> IO<B>;
     type Wrap = fn(A) -> IO<A>;
@@ -154,7 +143,7 @@ fn load_io_module(vm: &Thread) -> vm::Result<vm::ExternModule> {
     let wrap = vec![Pop(1), Return];
     vm::ExternModule::new(vm, record! {
         bind => TypedBytecode::<FlatMap>::new("bind", 3, flat_map),
-       pure => TypedBytecode::<Wrap>::new("pure", 2, wrap.clone()),
-        println => TypedBytecode::<Wrap>::new("println", 2, wrap),
+        pure => TypedBytecode::<Wrap>::new("pure", 2, wrap.clone()),
+        println => primitive!(1,println),
     })
 }
