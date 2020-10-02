@@ -321,6 +321,7 @@ dependencies = [
  "log",
  "ordered-float",
  "pretty",
+ "rand",
  "serde_json",
  "typed-arena",
 ]

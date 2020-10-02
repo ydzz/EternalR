@@ -121,12 +121,6 @@ fn test_compile() {
     compiler.compile(source.as_str(), externs, &thread);
 }
 
-
-fn println(s: &str) -> IO<i32> {
-    eprintln!("{}", s);
-    IO::Value(0)
-}
-
 use gluon::vm::{self,api};
 use gluon::vm::types::*;
 use gluon::vm::api::{IO,generic::{A,B},TypedBytecode,primitive};
@@ -145,5 +139,23 @@ fn load_io_module(vm: &Thread) -> vm::Result<vm::ExternModule> {
         bind => TypedBytecode::<FlatMap>::new("bind", 3, flat_map),
         pure => TypedBytecode::<Wrap>::new("pure", 2, wrap.clone()),
         println => primitive!(1,println),
+        randomInt => primitive!(0,randomInt),
+        showInt => primitive!(1,showInt),
     })
+}
+
+fn println(s: &str) -> IO<i32> {
+    eprintln!("{}", s);
+    IO::Value(0)
+}
+
+fn showInt(num:i32) -> String {
+    num.to_string()
+}
+
+fn randomInt() -> IO<i32> {
+    use rand::prelude::*;
+    let num:u8 = random();
+    
+    IO::Value(num as i32)
 }

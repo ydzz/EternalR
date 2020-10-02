@@ -46,12 +46,8 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         }
     }
 
-    pub fn translate(
-        &mut self,
-        module: &mut Module,
-        externs_file: ExternsFile,
-        mut compiler: ModuleCompiler<'_, '_>,
-    ) -> Result<(&'alloc VMExpr<'alloc>, ArcType), TranslateError> {
+    pub fn translate(&mut self,module: &mut Module,externs_file: ExternsFile,mut compiler: ModuleCompiler<'_, '_>) 
+    -> Result<(&'alloc VMExpr<'alloc>, ArcType), TranslateError> {
         self.grab_type_info(module);
         let (export_expr, typ): (VMExpr<'alloc>, ArcType) = self.translate_exports(&module.exports, &externs_file)?;
         let mut pre_expr = self.alloc.arena.alloc(export_expr);
@@ -64,10 +60,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         Ok((foreign, typ.clone()))
     }
 
-    fn translate_bind_item(
-        &self,
-        bind: &Bind<Ann>,
-    ) -> Result<(LetBinding<'alloc>, ArcType), TranslateError> {
+    fn translate_bind_item(&self,bind: &Bind<Ann>) -> Result<(LetBinding<'alloc>, ArcType), TranslateError> {
         match bind {
             Bind::NonRec(ann, id, expr) => {
                 let id_name = self.id2str(id)?;
@@ -164,11 +157,14 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
     ) -> Result<TExprInfo<'alloc>, TranslateError> {
         match expr {
             Expr::Literal(ann, lit) => {
-                let typ = self
-                    .translate_type(ann.2.as_ref().unwrap(),None)
-                    .map_err(|_| TranslateError::TypeError)?;
-                let vmexpr = self.translate_literal(lit, ann, typ.typ())?;
-                Ok(TExprInfo::new(vmexpr, typ.typ(), &ann.0))
+                let lit_type = if let Some(v) = ann.2.as_ref() {
+                    let t = self.translate_type(v,None).map_err(|_| TranslateError::TypeError)?;
+                    t.typ()
+                } else {
+                    self.type_cache.hole()
+                };
+                let vmexpr = self.translate_literal(lit, ann, lit_type.clone())?;
+                Ok(TExprInfo::new(vmexpr, lit_type, &ann.0))
             }
             Expr::Var(ann, qual) => {
                 let typ;
@@ -242,7 +238,13 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 if let Some(types::Meta::IsTypeClassConstructor) = &ann.1 {
                     return self.gen_type_class_instance(a, b, bind_name,None);
                 }
-                let typ = self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?;
+                let app_type = if let Some(v) = ann.2.as_ref() {
+                    let typ = self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?;
+                    typ.typ()
+                } else {
+                    self.type_cache.hole()
+                };
+               
                 let mut expr_b = self.translate_expr(b, "")?;
                 let expr2 = if expr_b.closure.len() == 0 {
                     expr_b.take_expr()
@@ -252,7 +254,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 let mut args:Vec<VMExpr<'alloc>> = vec![expr2];
                 let mut cur_arg: &Expr<Ann> = a;
                 let ename_expr;
-                //let mut func_name_type = None;
+              
                 loop {
                     match cur_arg {
                         Expr::App(ann, la, lb) => {
@@ -266,7 +268,7 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                             cur_arg = la;
                         },
                         Expr::Var(_,qual) => {
-                            //func_name_type = Some(self.translate_type(ann.2.as_ref().unwrap(),None).map_err(|_| TranslateError::TypeError)?);
+                          
                             let name = qual.1.as_str().unwrap_or_default();
                            
                             if name.chars().next().unwrap().is_uppercase() {
@@ -296,16 +298,16 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                                 let prim_id = TypedIdent::new2(sym, id.typ.clone());
                                 let new_expr = VMExpr::Ident(prim_id, source_span_to_byte_span(&ann.0));
                                 let new_ea = self.alloc.arena.alloc(new_expr);
-                                Ok(TExprInfo::new(VMExpr::Call(new_ea, args), typ.typ(), &ann.0))
+                                Ok(TExprInfo::new(VMExpr::Call(new_ea, args), app_type.clone(), &ann.0))
                             }
-                            _ => Ok(TExprInfo::new(VMExpr::Call(ea, args), typ.typ(), &ann.0)),
+                            _ => Ok(TExprInfo::new(VMExpr::Call(ea, args),app_type.clone(), &ann.0)),
                         }
                     },
                     Err(type_ctor_name) => {
                       
-                        let ident = TypedIdent::new2(self.simple_symbol(type_ctor_name), typ.typ());
+                        let ident = TypedIdent::new2(self.simple_symbol(type_ctor_name), app_type.clone());
                         let data_expr = VMExpr::Data(ident, args, source_span_to_byte_span(&ann.0).start());
-                        Ok(TExprInfo::new(data_expr, typ.typ(), &ann.0))
+                        Ok(TExprInfo::new(data_expr, app_type, &ann.0))
                     }
                 }
             }
@@ -372,8 +374,6 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                                 }
                             }
                             pattern = Pattern::Constructor(type_ident,var_binds);
-                            //dbg!(binder);
-                            //todo!()
                         },
                         b => {
                             dbg!(b);
@@ -393,7 +393,27 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
                 let alt_arr_ref = self.alloc.alternative_arena.alloc_fixed(alt_arr);
                 let match_expr = VMExpr::Match(pred_expr, alt_arr_ref);
                 Ok(TExprInfo::new(match_expr, typ.typ(), &ann.0))
-            }
+            },
+            Expr::Let(ann,bind,expr) => {
+                let mut texpr = self.translate_expr(expr, "")?;
+                let vm_expr = texpr.take_expr();
+                let mut pre_expr = self.alloc.alloc(vm_expr);
+                let mut len = 0;
+                let mut first_expr = None;
+                for bind_item in bind.iter().rev() {
+                    let (let_binding,_) = self.translate_bind_item(&bind_item)?;
+                    let let_expr = VMExpr::Let(self.alloc.let_binding_arena.alloc(let_binding),pre_expr);
+                    if len == bind.len() - 1 {
+                        first_expr = Some(let_expr);
+                    } else {
+                        pre_expr = self.alloc.arena.alloc(let_expr);
+                        len+=1;
+                    }
+                    
+                }
+                
+                Ok(TExprInfo::new(first_expr.unwrap(), texpr.typ, &ann.0)) 
+            },
             expr => {
                 dbg!(expr);
                 todo!()
@@ -957,6 +977,8 @@ impl<'vm, 'alloc> Translate<'vm, 'alloc> {
         match func_name {
             "primcore'int_add" => "#Int+".into(),
             "primcore'int_sub" => "#Int-".into(),
+            "primcore'int_eq"  => "#Int==".into(),
+            "primcore'int_less"  => "#Int<".into(),
             _ => func_name.into(),
         }
     }

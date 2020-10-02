@@ -133,10 +133,11 @@ fn test_gluon() {
     use gluon::vm::api::de::{De};
     let vm = new_vm();
     let script = r#"
-      let {__io_pure} = import! io
-     
-      let io'pure = __io_pure
-      [io'pure 111]
+      
+      let testLet n:Int -> Int = let a = 666
+                                 in let b = 777 
+                                    in a #Int+ b
+      testLet 1
     "#;
     add_extern_module(&vm, "io", load_io_module);
     add_extern_module(&vm, "other", load_other_module);
